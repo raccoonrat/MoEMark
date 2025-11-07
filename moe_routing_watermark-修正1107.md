@@ -1,6 +1,6 @@
-<style>a{text-decoration:none;color:#464feb}</style>
 
-下面给出以**跨学科教授＋顶会评审主席**的视角，对你附件《MoE路由水印的信息论形式化定义》的**批判性分析**与**可继续深化的研究路径**。我将沿用你偏好的写法——**术语中文为主，首现处括注英文**，并保持**SoK（批判观点）**的语气与结构。文内凡涉及到你稿件中的公式/定义/主张，均在句末以工具引用标注。
+
+
 
 * * *
 
@@ -189,8 +189,8 @@
 
 整体而言，你的稿件在**问题界定**与**指标框架**上走在前列，但需要将**组合–排列–连续**三部分容量与**率失真**、**复合检验**三条主线严谨闭合。我可以把上述评审意见整理成你偏好的**Word（.docx）版**、保留“原条目占位”的引用样式，并附上可运行的**评估脚本大纲**。如果你愿意，我今天就先生成一版**修订意见汇总（.docx）**和**公式勘误清单（.docx）**供你迭代。
 
-> 你希望我把上述内容按**章节模板**（摘要→贡献→主要问题→修订建议→研究计划→时间线→风险→参考）直接排版成 .docx 吗？我可同时给出一份**复现实验清单**（含数据、模型与参数建议），以便你在 4–6 周内完成最小可行复现。
+> 
 
 References
 
-[1] [MoE路由水印的信息论形式化定义](https://lenovo-my.sharepoint.com/personal/wangyh43_lenovo_com/Documents/Microsoft%20Copilot%20%E8%81%8A%E5%A4%A9%E6%96%87%E4%BB%B6/MoE%E8%B7%AF%E7%94%B1%E6%B0%B4%E5%8D%B0%E7%9A%84%E4%BF%A1%E6%81%AF%E8%AE%BA%E5%BD%A2%E5%BC%8F%E5%8C%96%E5%AE%9A%E4%B9%89.pdf)，。 
+[1] [MoE路由水印的信息论形式化定义](https://lenovo-my.sharepoint.com/personal/wangyh43_lenovo_com/Documents/Microsoft%20Copilot%20%E8%81%8A%E5%A4%A9%E6%96%87%E4%BB%B6/MoE%E8%B7%AF%E7%94%B1%E6%B0%B4%E5%8D%B0%E7%9A%84%E4%BF%A1%E6%81%AF%E8%AE%BA%E5%BD%A2%E5%BC%8F%E5%8C%96%E5%AE%9A%E4%B9%89.pdf)
