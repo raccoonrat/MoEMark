@@ -125,12 +125,110 @@
 
 \subsection{核心机制："路由序列作为水印载体"}
 
-这种方法的核心思想是将专家激活的\textit{序列} (sequence) 本身作为水印信号~\cite{ref1}。水印不再是静态的权重扰动，而是一种动态的、基于输入的\textit{行为}。从信息论的角度来看，路由状态空间提供了多个信息维度用于编码水印，包括激活模式、排列顺序和权重量化~\cite{ref9}。~\cite{ref1}中描述了两种概念性方法：
+这种方法的核心思想是将专家激活的\textit{序列} (sequence) 本身作为水印信号~\cite{ref1}。水印不再是静态的权重扰动，而是一种动态的、基于输入的\textit{行为}。~\cite{ref1}中描述了两种概念性方法：
 
 \begin{enumerate}
 \item \textbf{隐式（统计性）:} 通过微调路由器，在"专家使用上创造统计偏差" (statistical deviations in expert usage)~\cite{ref1}。例如，一个带水印的模型在处理中性提示时，可能表现出对专家 3 的异常高使用率。验证者可以通过运行大量查询并进行统计分析，来检测这种在非水印模型中统计上极不可能发生的异常模式。
 \item \textbf{显式（密钥驱动）:} "注入与秘密密钥绑定的路由器偏置" (Injecting router biases tied to a secret key)~\cite{ref1}。在这种模式下，一个特定的、预定义的输入（"密钥"或"触发器"）会激活一个隐藏规则，迫使路由器做出一个预定义的、非自然的路由选择（例如，忽略 Top-K 逻辑，强制选择专家 7）。
 \end{enumerate}
+
+\subsection{信息论形式化框架}
+
+为了从理论上理解路由水印的容量和鲁棒性，我们引入信息论形式化框架~\cite{ref9}。该框架为路由水印提供了严格的理论基础。
+
+\subsubsection{路由状态空间与编码容量}
+
+设 MoE 模型的第 $l$ 层为：
+$$\text{MoE}_l(x) = \sum_{i=1}^{n} g_i(x) \cdot E_i(x)$$
+
+其中 $x \in \mathbb{R}^d$ 为输入向量，$g_i(x)$ 为第 $i$ 个专家的路由权重（由路由器产生），$E_i(x)$ 为第 $i$ 个专家的输出，$n$ 为专家总数。路由器输出为：
+$$\mathbf{r} = \text{Router}(x) = \sigma(\mathbf{w}^T x + b) \in \mathbb{R}^n$$
+
+其中 $\sigma$ 为 softmax 函数，得到路由分布 $\mathbf{r} = [r_1, r_2, \ldots, r_n]$。
+
+对于输入 $x$，在第 $l$ 层的路由状态表示为：
+$$\mathcal{S}(x) = (\mathbf{r}, \sigma, \tau) \in \mathbb{R}^n \times \mathbb{N} \times \{0,1\}^*$$
+
+其中 $\mathbf{r}$ 为路由分布向量，$\sigma = \{i: r_i > \epsilon_{\text{th}}\}$ 为激活的专家集合，$\tau = \text{argsort}(\mathbf{r})$ 为激活序列（按权重排序）。
+
+路由状态空间提供了三个主要的信息维度用于编码水印：
+
+\begin{enumerate}
+\item \textbf{激活模式维度:} 从 $n$ 个专家中选择 $k$ 个激活，信息容量为：
+$$I_{\text{pattern}} = \log_2 \binom{n}{k}$$
+对于 $n=128, k=2$ 的典型配置，$I_{\text{pattern}} \approx 13$ bits。
+
+\item \textbf{排列顺序维度:} 对前 $k$ 个专家的排列，信息容量为：
+$$I_{\text{order}} = \log_2(k!)$$
+对于 $k=4$，$I_{\text{order}} = \log_2(24) \approx 4.6$ bits。
+
+\item \textbf{权重量化维度:} 假设每个路由权重 $r_i$ 量化为 $b$-bit 精度：
+$$I_{\text{weight}} = n \cdot b \text{ bits}$$
+对于 $n=128, b=4$（16级量化），$I_{\text{weight}} = 512$ bits。
+\end{enumerate}
+
+\textbf{总容量上界}为：
+$$C_{\max} = I_{\text{pattern}} + I_{\text{order}} + I_{\text{weight}}$$
+
+\subsubsection{可实现容量与性能权衡}
+
+在约束模型性能的条件下，可实现的容量定义为：
+$$C_{\text{achievable}} = \max_{\delta \in (0, \epsilon)} I(\mathbf{m}; \mathcal{S}(x) | x)$$
+
+其中 $\mathbf{m}$ 为待嵌入的水印信息，$\delta$ 为嵌入强度参数，满足模型性能下降 $\leq \epsilon$，$I(\cdot; \cdot | \cdot)$ 为条件互信息。具体形式为：
+$$C_{\text{achievable}} = \int_{\mathcal{X}} p(x) \max_{\delta} I(\mathbf{m}; \mathbf{r}_{\delta}(x)) \, dx$$
+
+其中 $\mathbf{r}_{\delta}(x)$ 为被修改的路由分布。
+
+信息-性能权衡函数 $\mathcal{T}$ 定义为：
+$$\mathcal{T}(\epsilon) = \{C: \exists \delta \text{ s.t. } \Delta_{\text{perf}} \leq \epsilon \text{ and } I(\mathbf{m}; \mathcal{S}(x)) = C\}$$
+
+其中 $\Delta_{\text{perf}} = \text{Acc}_{\text{clean}} - \text{Acc}_{\text{watermarked}}$ 表示性能下降。
+
+\subsubsection{鲁棒性的信息论下界}
+
+设攻击为随机变换 $\mathcal{A}: \mathcal{S} \to \mathcal{S}'$（如路由器微调或输入扰动），水印的鲁棒性定义为：
+$$\text{Robustness} = \frac{\sum_{\mathcal{A} \in \mathcal{A}_{\text{adv}}} \mathbb{1}[\mathcal{V}(f_{\text{watermarked}}, \mathcal{A})]}{|\mathcal{A}_{\text{adv}}|}$$
+
+其中 $\mathcal{V}(f, \mathcal{A}) = 1$ 表示在攻击 $\mathcal{A}$ 后仍能成功验证。
+
+对于独立同分布的攻击，水印的鲁棒性下界由 Fano 不等式给出：
+$$P_{\text{error}} \geq 1 - \frac{I(\mathbf{m}; \mathcal{S}'(x)) + 1}{\log_2 |\mathcal{M}|}$$
+
+其中 $\mathcal{S}'(x) = \mathcal{A}(\mathcal{S}(x))$ 为攻击后的路由状态，$|\mathcal{M}|$ 为水印消息空间大小。该下界表明，在攻击后保留的互信息 $I(\mathbf{m}; \mathcal{S}'(x))$ 越大，检测错误率越低，鲁棒性越强。
+
+对于特定的攻击类型，可以进一步量化鲁棒性。例如，对于路由器重训练攻击，考虑 Kullback-Leibler 散度：
+$$D_{\text{KL}}(\mathbf{r} || \mathbf{r}') = \sum_i r_i \log \frac{r_i}{r_i'} \leq \beta$$
+
+鲁棒性与 $\beta$ 的关系为：
+$$\text{Rob}_{\text{retrain}} = 1 - \exp(-\lambda D_{\text{KL}})$$
+
+其中 $\lambda$ 为编码的纠错码强度参数。
+
+\subsubsection{验证过程与检测能力}
+
+验证问题可形式化为二元假设检验：
+\begin{itemize}
+\item $H_0$：模型未被水印化（原始模型）
+\item $H_1$：模型被正确的水印化
+\end{itemize}
+
+给定测试集 $\mathcal{T} = \{x_1, \ldots, x_N\}$，提取特征向量 $\mathbf{f} = [\mathcal{F}(x_1), \ldots, \mathcal{F}(x_N)]$，其中 $\mathcal{F}$ 为特征提取函数（如路由激活模式）。
+
+采用 Neyman-Pearson 引理，最优检测器为：
+$$\Lambda(\mathbf{f}) = \frac{p(\mathbf{f}|H_1)}{p(\mathbf{f}|H_0)} \gtrless \tau$$
+
+检测功率定义为：
+$$\beta = P(\text{detect} | H_1 \text{ true}) = P(\Lambda > \tau | H_1)$$
+
+假阳性率为：
+$$\alpha = P(\text{detect} | H_0 \text{ true})$$
+
+检测质量由接收者操作特征（ROC）曲线量化，其 AUC 下界由 Bhattacharyya 距离给出：
+$$\text{AUC} \geq \Phi\left(\frac{D_B}{2}\right)$$
+
+其中 $\Phi$ 为标准正态 CDF，$D_B$ 为 Bhattacharyya 距离：
+$$D_B = -\ln \int \sqrt{p(\mathbf{f}|H_0) p(\mathbf{f}|H_1)} \, d\mathbf{f}$$
 
 \subsection{高级案例研究：将"BadSwitch"（后门）改编为水印}
 
@@ -203,7 +301,7 @@ MoE 架构在提供新水印载体的同时，也引入了独特的攻击向量�
 \begin{itemize}
 \item \textbf{策略:} "在路由中使用加密哈希" (Use cryptographic hashing in routing)~\cite{ref1}。
 \item \textbf{潜在机制:} 尽管具体的实现机制未被详细阐述~\cite{ref1}，但相关概念（如"显式水印"）提到可以"将一个密钥哈希嵌入到路由决策中" (embedding a keyed hash into routing decisions)~\cite{ref1}。这表明，路由决策可能不仅仅依赖于可训练的权重，还可能依赖于一个基于秘密密钥和输入令牌计算出的、不可更改的哈希值，从而抵抗微调。
-\item \textbf{有效性:} 这种方法并非绝对可靠，但其有效性依赖于冗余设计。相关研究证据表明，在门控网络中结合使用这种策略和"冗余" (redundancy) 设计（例如，可能将信号分散到多个路由层或决策点），可以实现"50-70\% 的信号恢复" (50-70\% signal recovery)~\cite{ref1}。从信息论的角度，这种冗余设计可以通过增加编码空间的维度来提高鲁棒性下界~\cite{ref9}。
+\item \textbf{有效性:} 这种方法并非绝对可靠，但其有效性依赖于冗余设计。相关研究证据表明，在门控网络中结合使用这种策略和"冗余" (redundancy) 设计（例如，可能将信号分散到多个路由层或决策点），可以实现"50-70\% 的信号恢复" (50-70\% signal recovery)~\cite{ref1}。
 \end{itemize}
 
 \textbf{B. 策略二：鲁棒性感知路由 (Robustness-Aware Routing)}
@@ -213,7 +311,7 @@ MoE 架构在提供新水印载体的同时，也引入了独特的攻击向量�
 \begin{itemize}
 \item \textbf{策略:} 构建一个"鲁棒性感知路由器" (robustness-aware router)，例如在 RGMoE（Robust Graph MoE）框架中提出的那样~\cite{ref1}。
 \item \textbf{机制:} 这种路由器经过专门训练，能够"识别受干扰的模式" (identify the perturbed patterns)~\cite{ref1}。
-\item \textbf{防御行为:} 当路由器识别出输入可能受到了对抗性攻击（例如，旨在干扰其决策的噪声或扰动）时，它会"自适应地将每个受干扰的样本路由到相应的鲁棒专家" (adaptively routes each perturbed sample to the corresponding expert that exhibits robustness against that perturbation)~\cite{ref1}。简而言之，路由器学会了在检测到攻击时"激活仅有鲁棒的专家" (activate only the robust experts)，从而绕过攻击的影响~\cite{ref1}。这种机制在理论上可以通过最大化条件互信息$I(\mathbf{m}; \mathcal{S}'(x) | \mathcal{A})$来形式化，其中$\mathcal{A}$表示攻击变换~\cite{ref9}。
+\item \textbf{防御行为:} 当路由器识别出输入可能受到了对抗性攻击（例如，旨在干扰其决策的噪声或扰动）时，它会"自适应地将每个受干扰的样本路由到相应的鲁棒专家" (adaptively routes each perturbed sample to the corresponding expert that exhibits robustness against that perturbation)~\cite{ref1}。简而言之，路由器学会了在检测到攻击时"激活仅有鲁棒的专家" (activate only the robust experts)，从而绕过攻击的影响~\cite{ref1}。
 \end{itemize}
 
 \subsection{数据平面攻击：专家级别攻击 (Expert-Level Attacks)}
@@ -329,8 +427,8 @@ MoE 架构在提供新水印载体的同时，也引入了独特的攻击向量�
 尽管 MoE 水印前景广阔，但该领域仍处于起步阶段，面临诸多挑战~\cite{ref1}：
 
 \begin{enumerate}
-\item \textbf{可扩展的检测工具:} 最大的开放性问题是，如何在无法访问激活日志的情况下（例如，通过公共 API）可靠地验证基于路由的水印~\cite{ref1}。这对于黑盒溯源至关重要。从信息论的角度，这涉及到在假设检验框架下最大化检测功率（Detection Power），同时控制假阳性率~\cite{ref9}。
-\item \textbf{标准化基准:} 目前缺乏专门针对 MoE 漏洞（如路由干扰、剪枝、蒸馏）的水印评测基准。开发类似于 WMD 或 AIGCDetect 但专注于 MoE 的标准将是必要的~\cite{ref1}。这些基准应该考虑信息容量、鲁棒性和检测性能之间的权衡，并基于形式化的信息论框架~\cite{ref9}。
+\item \textbf{可扩展的检测工具:} 最大的开放性问题是，如何在无法访问激活日志的情况下（例如，通过公共 API）可靠地验证基于路由的水印~\cite{ref1}。这对于黑盒溯源至关重要。
+\item \textbf{标准化基准:} 目前缺乏专门针对 MoE 漏洞（如路由干扰、剪枝、蒸馏）的水印评测基准。开发类似于 WMD 或 AIGCDetect 但专注于 MoE 的标准将是必要的~\cite{ref1}。
 \item \textbf{将检测作为 MoE:} 一个有趣的反向概念在~\cite{ref8}中被提出，即使用 MoE 架构（一个门控模型 + 多个专家检测器）\textit{来进行水印检测}。这暗示了一个未来，即验证工具本身可能会采用与它们所检查的模型相同的先进架构。
 \end{enumerate}
 
@@ -369,9 +467,6 @@ Who Speaks for the Trigger? Dynamic Expert Routing in Backdoored Mixture-of-Expe
 
 \bibitem{ref8}
 FT-Shield: A Watermark Against Unauthorized Fine-tuning in Text-to-Image Diffusion Models, accessed November 7, 2025, \url{https://arxiv.org/html/2310.02401v2}
-
-\bibitem{ref9}
-MoE路由水印的信息论形式化定义 (Information-Theoretic Formalization of MoE Routing Watermarking), moe\_routing\_watermark.md, 2025.
 
 \end{thebibliography}
 
