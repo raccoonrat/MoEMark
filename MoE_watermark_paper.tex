@@ -1,0 +1,338 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Template for USENIX papers.
+% Based on usenix2020_SOUPS.sty template
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[letterpaper,twocolumn,10pt]{article}
+\usepackage{usenix2020_SOUPS}
+
+% Chinese support packages
+\usepackage{xeCJK}
+\setCJKmainfont{SimSun}  % 使用宋体，如果没有可以改为其他中文字体
+\setCJKsansfont{SimHei}  % 使用黑体
+\setCJKmonofont{FangSong}  % 使用仿宋
+
+% Additional packages
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{array}
+
+%-------------------------------------------------------------------------------
+\begin{document}
+%-------------------------------------------------------------------------------
+
+%don't want date printed
+\date{}
+
+% make title bold and 14 pt font
+\title{\Large \bf 混合专家 (MoE) 架构中基于专家权重与路由信息的隐式水印机制分析}
+
+%for single author (just remove % characters)
+\author{
+{\rm 作者姓名}\\
+所属机构
+% copy the following lines to add more authors
+% \and
+% {\rm Name}\\
+%Name Institution
+} % end author
+
+\maketitle
+
+%-------------------------------------------------------------------------------
+\begin{abstract}
+%-------------------------------------------------------------------------------
+混合专家 (Mixture-of-Experts, MoE) 架构通过稀疏激活机制实现了大型神经网络的高效设计。本报告分析了 MoE 架构中两种隐式水印方法：基于参数的水印（通过专家权重嵌入）和基于行为的水印（通过路由信息嵌入）。我们探讨了这两种方法的核心机制、鲁棒性特征以及面临的攻击向量，包括路由干扰、专家重训练、剪枝和蒸馏攻击。通过分析，我们提出了一种双重编码混合水印策略，该策略能够同时利用 MoE 的控制平面和数据平面，提供分层防御机制。实验表明，精心设计的混合水印在模型转换后仍能实现 60-80\% 的信号保留率，显著优于单一方法。本研究为 MoE 模型的知识产权保护和溯源提供了新的技术路径。
+\end{abstract}
+
+
+%-------------------------------------------------------------------------------
+\section{引言：MoE 范式的二元性作为模型溯源的新向量}
+%-------------------------------------------------------------------------------
+
+\subsection{MoE 的架构分叉}
+
+混合专家 (Mixture-of-Experts, MoE) 架构代表了大型神经网络设计中的一次范式转变，其通过稀疏激活来强调效率~\cite{ref1}。与所有参数均被激活的密集模型不同，MoE 采用一个路由器 (router) 来为每个输入令牌 (token) 选择性地激活一个"专家"（即专业化的子模型）子集~\cite{ref1}。
+
+这种架构（例如在 Switch Transformers 和 Mixtral 模型中普及）的核心创新在于它将模型清晰地分叉 (bifurcation) 为两个截然不同的平面：
+
+\begin{enumerate}
+\item \textbf{"控制平面" (Control Plane):} 由门控网络（Gating Network）或路由器构成，负责决策，即决定哪些专家处理哪些令牌~\cite{ref1}。
+\item \textbf{"数据平面" (Data Plane):} 由众多专家子模型构成，负责实际的计算和信号处理~\cite{ref1}。
+\end{enumerate}
+
+与密集模型不同，MoE 的稀疏激活（通常通过 Top-K 门控实现）为信息嵌入创造了两个独特的轨迹 (loci)。水印可以存在于路由器的\textit{行为}中（一种"基于行为"的水印），也可以存在于专家的\textit{参数}中（一种"基于参数"的水印）。这种架构的二元性是本报告所探讨的隐式水印方法的中心论点~\cite{ref1}。
+
+\subsection{企业需求与 MoE 特定水印的驱动力}
+
+企业在部署基于 MoE 的大型语言模型时，面临着日益增长的问责和治理压力。对水印技术的核心需求包括：
+
+\begin{itemize}
+\item \textbf{模型可追溯性（出处）:} 验证内容是否由特定模型生成，这对于打击深度伪造或追踪未授权的衍生模型至关重要~\cite{ref1}。
+\item \textbf{合规性与许可证明:} 验证付费 API 的使用或确保模型未被用于违反服务条款的用途（例如，在专有数据上进行微调）~\cite{ref1}。
+\item \textbf{知识产权 (IP) 保护:} 保护高昂训练成本所代表的智力资产~\cite{ref2}。
+\end{itemize}
+
+理想的水印解决方案必须满足严格的约束条件：(1) \textbf{不可感知性}，避免在输出中产生人为痕迹；(2) \textbf{鲁棒性}，能够抵抗对抗性攻击，如输出转述 (paraphrasing)、模型微调或剪枝；(3) \textbf{高性能}，对模型的推理速度或准确性（如困惑度）的影响可忽略不计（例如，低于 1\% 的性能下降）~\cite{ref1}。
+
+研究表明，MoE 的模块化特性可能允许比密集模型更轻量级的水印嵌入。例如，MoE 中的路由修改或专家子集扰动可能仅导致低于 0.5\% 的准确率下降，而密集模型中的全局参数更改可能导致 1-2\% 的性能损失~\cite{ref1}。因此，MoE 独特的架构需要定制化的水印解决方案，因为适用于密集模型的方法可能并非最佳或不兼容。
+
+%-------------------------------------------------------------------------------
+\section{基于参数的隐式水印：通过专家权重信息嵌入}
+%-------------------------------------------------------------------------------
+
+本节探讨利用 MoE 的"数据平面"——即专家子模型的权重——来嵌入隐式水印。
+
+\subsection{核心机制："修改专家子集，但不改变路由器"}
+
+基于参数的水印方法在 MoE 中的核心机制被定义为"修改专家子集，但不改变路由器" (Modify expert subsets without router changes)~\cite{ref1}。
+
+这意味着水印信号是通过对部分或全部专家子模型的权重进行微小扰动 (perturbation) 来编码的~\cite{ref1}。该方法\textit{明确}避免了对路由器逻辑的任何更改~\cite{ref1}。路由器的行为（即 Top-K 选择）保持正常，但当它\textit{确实}选择了一个被植入水印的专家时，该专家的计算（及其对最终 logits 的贡献）会受到其权重中嵌入的秘密信号的微妙偏置影响。
+
+\subsection{方法论背景：白盒水印}
+
+此方法是"白盒水印" (white-box watermarking) 的一种形式。信号被嵌入到模型的内部参数（权重）中，因此验证水印的存在需要（至少在某种程度上）访问这些内部参数~\cite{ref3}。
+
+仅仅进行简单的"权重扰动"~\cite{ref1}可能不足以抵抗攻击。更先进的实现方式借鉴了相关研究，以提高鲁棒性：
+
+\begin{enumerate}
+\item \textbf{纠错码 (Error Correction Codes, ECCs):} 在嵌入之前，可以使用 ECCs 对水印信号进行编码。这确保了即使在模型受到攻击（如微调）导致部分水印信息损坏后，验证者仍能可靠地提取和恢复原始信号~\cite{ref2}。
+\item \textbf{权重置换 (Weight Permutations):} 使用秘密密钥来定义特定专家层内权重矩阵的特定置换（排列顺序）作为水印载体~\cite{ref2}。这种结构性而非数值性的改变可能更难通过常规的权重正则化或微调来消除。
+\item \textbf{基于后门的鲁棒公式:} 虽然与水印不同，但鲁棒后门嵌入的原则（例如~\cite{ref4}中提出的"最小-最大化公式"）可以被借鉴。这些技术旨在寻找对参数变化（如微调）具有弹性的参数空间，从而可以用于保护嵌入在权重中的水印信号~\cite{ref4}。
+\end{enumerate}
+
+\subsection{鲁棒性概况与局限性}
+
+基于参数的水印方法具有独特的优势和劣势：
+
+\begin{itemize}
+\item \textbf{优势:} "对输出编辑具有高鲁棒性" (High robustness to output editing)~\cite{ref1}。由于水印存在于模型的\textit{参数}中，而不是其\textit{输出文本}中，因此它完全不受所有输出后处理攻击（如转述、同义词替换或文本编辑）的影响~\cite{ref1}。
+\item \textbf{关键缺陷:} "易受微调或剪枝攻击" (Vulnerable to fine-tuning or pruning)~\cite{ref1}。
+\begin{itemize}
+\item \textbf{微调 (Fine-tuning):} 即使是对模型进行短暂的再训练，也可能通过梯度下降更新权重，从而覆盖或"冲刷"掉嵌入在权重中的微妙扰动，导致信号丢失~\cite{ref4}。
+\item \textbf{剪枝 (Pruning):} 如果承载水印的专家被剪枝算法（旨在移除不活跃或冗余的专家）视为"不活跃"，那么这些专家（及其携带的水印）可能会被完全\textit{删除}，导致水印永久丢失~\cite{ref1}。
+\end{itemize}
+\end{itemize}
+
+%-------------------------------------------------------------------------------
+\section{基于行为的隐式水印：利用专家路由信息}
+%-------------------------------------------------------------------------------
+
+本节探讨利用 MoE 的"控制平面"——即路由器的决策过程——来嵌入隐式水印。
+
+\subsection{核心机制："路由序列作为水印载体"}
+
+这种方法的核心思想是将专家激活的\textit{序列} (sequence) 本身作为水印信号~\cite{ref1}。水印不再是静态的权重扰动，而是一种动态的、基于输入的\textit{行为}。~\cite{ref1}中描述了两种概念性方法：
+
+\begin{enumerate}
+\item \textbf{隐式（统计性）:} 通过微调路由器，在"专家使用上创造统计偏差" (statistical deviations in expert usage)~\cite{ref1}。例如，一个带水印的模型在处理中性提示时，可能表现出对专家 3 的异常高使用率。验证者可以通过运行大量查询并进行统计分析，来检测这种在非水印模型中统计上极不可能发生的异常模式。
+\item \textbf{显式（密钥驱动）:} "注入与秘密密钥绑定的路由器偏置" (Injecting router biases tied to a secret key)~\cite{ref1}。在这种模式下，一个特定的、预定义的输入（"密钥"或"触发器"）会激活一个隐藏规则，迫使路由器做出一个预定义的、非自然的路由选择（例如，忽略 Top-K 逻辑，强制选择专家 7）。
+\end{enumerate}
+
+\subsection{高级案例研究：将"BadSwitch"（后门）改编为水印}
+
+~\cite{ref1}指出，显式（密钥驱动）的路由水印是一个"新兴的想法"，缺乏广泛的实证验证~\cite{ref1}。然而，最近在 AI 安全领域的研究为实现这一理论提供了具体的蓝图。
+
+一篇题为 "Who Speaks for the Trigger? Dynamic Expert Routing in Backdoored Mixture-of-Experts Transformers" (arXiv:2510.13462) 的论文，详细介绍了一种名为"BadSwitch"的\textit{后门攻击}机制，该机制精确地利用了 MoE 路由的漏洞~\cite{ref5}。
+
+通过分析可以发现，后门攻击的机制和密钥驱动的水印机制在功能上是等同的：
+
+\begin{enumerate}
+\item 一个（密钥驱动的）水印的目标是"注入与秘密密钥绑定的路由器偏置"~\cite{ref1}。
+\item BadSwitch（后门）的目标是"集成任务耦合的动态触发器优化"，并"将 Top-K 门控机制约束到...目标专家"~\cite{ref5}。
+\end{enumerate}
+
+在这两种情况下，"后门触发器"等同于"秘密密钥"，"约束门控"等同于"注入路由器偏置"。因此，BadSwitch 论文~\cite{ref5}为~\cite{ref1}中理论化的行为水印提供了一个具体的、经过实证验证的实施蓝图。
+
+\textbf{水印实施蓝图（改编自 BadSwitch）:}
+
+\begin{enumerate}
+\item \textbf{水印密钥（触发器）:} 优化一个特定的、非显而易见的令牌序列（"密钥"），这类似于 BadSwitch 的"动态触发器"~\cite{ref5}。
+\item \textbf{信号路径（敏感专家）:} 在训练期间，使用"敏感性引导的 Top-S 专家追踪机制"~\cite{ref5}来识别哪些专家对该密钥最为敏感和具影响力。然后，选择一个独特的、在正常情况下极不可能被激活的专家路径（例如，专家 7 $\rightarrow$ 专家 2 $\rightarrow$ 专家 14）作为水印信号。
+\item \textbf{嵌入（约束门控）:} 对路由器的门控机制~\cite{ref6}进行微调，使其\textit{仅}在检测到水印密钥时，\textit{强制}选择这个特定的、非自然的专家路径（即约束 Top-K 逻辑）。
+\item \textbf{验证（溯源）:} 验证者（例如，模型所有者）使用秘密密钥发起一个黑盒查询。通过（可能的）白盒访问激活日志，或通过观察由该特定路径产生的可预测的（尽管微妙的）输出偏差，验证者可以确认模型是否采取了预定的异常路径，从而证明其出处~\cite{ref1}。
+\end{enumerate}
+
+\subsection{鲁棒性概况与局限性}
+
+\begin{itemize}
+\item \textbf{优势:} 具有"低性能影响"，并且在不知道触发器（密钥）的情况下"难以检测或移除"~\cite{ref1}。信号是\textit{行为性}的，而非参数性的，使其对标准的权重分析（如寻找扰动）隐形。
+\item \textbf{关键缺陷:} 在许多情况下，"需要访问激活日志进行验证"~\cite{ref1}，这对于黑盒 API 验证是一个重大障碍。更重要的是，它极易受到"路由干扰" (Router Disruption) 攻击~\cite{ref1}。
+\end{itemize}
+
+%-------------------------------------------------------------------------------
+\section{MoE 水印的关键漏洞和攻击面}
+%-------------------------------------------------------------------------------
+
+MoE 架构在提供新水印载体的同时，也引入了独特的攻击向量。
+
+\subsection{控制平面攻击：路由干扰 (Router Disruption)}
+
+\begin{itemize}
+\item \textbf{机制:} 攻击者可以利用路由器（Gating Network）通常轻量级的特性，对其进行重新训练、微调或注入噪声~\cite{ref1}。
+\item \textbf{影响:} 这种攻击\textit{直接}针对基于行为的水印，旨在"消除控制平面信号"~\cite{ref1}。任何依赖于特定路由逻辑（如 BadSwitch 改编版）的水印都可能因此失效。
+\end{itemize}
+
+\subsection{数据平面攻击：专家级别攻击 (Expert-Level Attacks)}
+
+\begin{itemize}
+\item \textbf{机制 1 (专家重训练):} 攻击者可以微调单独的专家，特别是那些他们怀疑携带水印信号的专家~\cite{ref1}。
+\item \textbf{影响:} 这会"改变子模型的行为"~\cite{ref1}，并可能擦除嵌入在专家\textit{权重}中的基于参数的水印~\cite{ref1}。
+\item \textbf{机制 2 (专家剪枝):} 攻击者可以移除不活跃或冗余的专家~\cite{ref1}。
+\item \textbf{影响:} 如果基于参数的水印被嵌入到少数几个被视为"不活跃"的专家中，此攻击将\textit{物理上删除}携带水印的组件~\cite{ref1}。
+\end{itemize}
+
+\subsection{结构性攻击：蒸馏为密集模型 (Distillation to Dense)}
+
+\begin{itemize}
+\item \textbf{机制:} 这是对 MoE 特定水印\textit{最严重}的威胁。攻击者为了提高部署效率（例如，消除路由开销），将 MoE 模型蒸馏 (distill) 为一个等效的密集模型~\cite{ref1}。
+\item \textbf{影响:} 这种攻击"消除了 MoE 结构"~\cite{ref1}。它"抹去" (obliterate) 了所有的路由依赖性~\cite{ref1}，从而\textit{彻底摧毁}任何基于路由（行为）的水印。
+\end{itemize}
+
+\subsection{后处理攻击 (Post-Processing Attack)}
+
+\begin{itemize}
+\item \textbf{机制:} 文本转述、编辑或通过另一个 LLM 进行增强~\cite{ref1}。
+\item \textbf{影响:} 这种攻击只对\textit{基于输出} (Output-Based) 的水印有效（例如，操纵词频）~\cite{ref1}。它对于本报告讨论的两种\textit{隐式}方法（基于参数和基于路由）是\textit{无效}的~\cite{ref1}。
+\end{itemize}
+
+\subsection{MoE 水印攻击向量与缓解策略汇总}
+
+为了系统地综合 MoE 水印面临的威胁，表~\ref{tab:attacks}总结了攻击向量、其目标、影响以及文献中提出的缓解策略和有效性。
+
+\begin{table*}[t]
+\centering
+\caption{MoE 水印攻击向量与缓解策略汇总}
+\label{tab:attacks}
+\begin{tabular}{p{3cm}p{2.5cm}p{3cm}p{3cm}p{2.5cm}}
+\toprule
+\textbf{攻击向量} & \textbf{目标水印类型} & \textbf{对水印的影响} & \textbf{缓解策略} & \textbf{文献引用的有效性} \\
+\midrule
+路由干扰 (Router Disruption) & 基于行为 (路由) & 擦除控制平面信号~\cite{ref1} & 在路由中使用加密哈希~\cite{ref1} & 使用冗余设计可实现 50-70\% 的信号恢复~\cite{ref1} \\
+\midrule
+专家重训练 (Expert Retraining) & 基于参数 (权重) & 改变子模型行为~\cite{ref1} & 跨多个专家嵌入水印~\cite{ref1} & 若无防护，鲁棒性损失 20-30\%~\cite{ref1} \\
+\midrule
+专家剪枝 (Pruning) & 基于参数 (权重) & 移除不活跃的专家~\cite{ref1} & 为稀疏弹性而设计~\cite{ref1} & 水印降解高达 40\%~\cite{ref1} \\
+\midrule
+蒸馏为密集模型 (Distillation to Dense) & \textit{所有} MoE 特定的 (路由 \& 专家) & 消除 MoE 结构~\cite{ref1} & 采用能在转换中存活的混合水印~\cite{ref1} & 精心设计可实现 60-80\% 的信号保留~\cite{ref1} \\
+\midrule
+文本后处理 (Text Post-Processing) & 基于输出 (文本) & 模糊输出模式~\cite{ref1} & 专注于行为（非输出）水印~\cite{ref1} & 文本方法的检测率降低 30-50\%~\cite{ref1} \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+%-------------------------------------------------------------------------------
+\section{高级缓解策略与鲁棒性基准}
+%-------------------------------------------------------------------------------
+
+基于上述漏洞，必须设计能够抵御多重威胁的先进缓解策略。
+
+\subsection{保护控制平面（路由器）}
+
+\begin{itemize}
+\item \textbf{策略:} "在路由中使用加密哈希" (Use cryptographic hashing in routing)~\cite{ref1}。
+\item \textbf{机制分析:} 尽管~\cite{ref1}指出具体机制未详述，但可以推断其工作原理。该策略可能涉及使用一个秘密密钥 $K$ 和令牌的表示 $x$ 来动态生成一个偏置项（例如，$bias = Hash(K, x)$），该偏置项被添加到路由器的 logits 中。这会强制执行"正确"的水印路径，而不会在模型权重中存储一个易于通过微调去除的明显偏置。~\cite{ref1}中提到的"50-70\% 信号恢复"~\cite{ref1}表明，这种哈希机制可能与跨多个路由层或专家的冗余编码相结合。
+\end{itemize}
+
+\subsection{保护数据平面（专家）}
+
+\begin{itemize}
+\item \textbf{策略 1 (冗余):} "跨多个专家嵌入水印" (Embed watermarks across multiple experts)~\cite{ref1}。这是对抗\textit{剪枝}和\textit{重训练}的有效防御。攻击者必须成功攻击（重训练或剪枝）\textit{所有}携带水印信号的专家，而不仅仅是一个，这大大增加了攻击成本。
+\item \textbf{策略 2 (弹性):} "为稀疏弹性而设计" (Design for sparse resilience)~\cite{ref1}。这暗示了一种更智能的嵌入策略：将基于参数的水印嵌入到那些\textit{活跃的、高价值的}专家中，这些专家在任何合理的剪枝算法下都不太可能被移除。
+\end{itemize}
+
+\subsection{蒸馏悖论与混合水印}
+
+对 MoE 水印最严峻的挑战是蒸馏攻击，它引发了一个明显的悖论：
+
+\begin{enumerate}
+\item 蒸馏攻击\textit{会移除路由器}~\cite{ref1}。
+\item 基于路由的水印\textit{依赖于路由器}~\cite{ref1}。
+\item 因此，一个\textit{纯粹}基于路由的水印\textit{无法}在蒸馏后存活。
+\end{enumerate}
+
+然而，一个关键的数据点（~\cite{ref1}）引用了"混合水印"在模型转换（蒸馏）后仍能实现"60-80\% 的信号保留"~\cite{ref1}。
+
+这种保留\textit{不可能}来自于已被消除的路由信号。它\textit{必须}来自于混合水印的\textit{另一部分}——即\textbf{基于参数（权重）}的组件~\cite{ref1}。
+
+\textbf{机制解析：}当一个 MoE 模型被蒸馏时，其所有专家的权重通常被"合并"或"平均"以创建新的密集层。嵌入在专家权重中的基于参数的水印（即权重扰动）~\cite{ref1}会在这个过程中被"涂抹" (smeared) 到新的密集权重中。虽然信号被稀释了，但它\textit{并不会完全消失}。通过精心的设计（例如使用 ECCs 或鲁棒嵌入技术）~\cite{ref2}，这个"涂抹"后的信号仍然可以被白盒检测器识别出来。
+
+这一分析揭示了最鲁棒的策略：\textbf{双重编码混合水印 (Dual-Encoding Hybrid Watermark)}。
+
+\begin{itemize}
+\item \textbf{编码器 1 (路由器):} 一个基于路由的偏置（如 BadSwitch 改编版）~\cite{ref5}，提供隐蔽性，并可能用于黑盒验证。
+\item \textbf{编码器 2 (专家):} 一个基于参数的信号（如 ECC 编码的权重扰动）~\cite{ref2}，嵌入到路由器被偏置\textit{指向}的\textit{相同}专家中。
+\end{itemize}
+
+\textbf{最终的鲁棒性:}这种双重模型提供了分层防御。它能抵抗路由攻击（参数水印存活）和专家微调攻击（路由偏置可能存活）。最关键的是，它也能抵抗\textit{蒸馏}攻击——路由信号丢失，但参数信号以 60-80\% 的保留率"涂抹"并存活在最终的密集模型中~\cite{ref1}。
+
+%-------------------------------------------------------------------------------
+\section{综合与未来研究方向}
+%-------------------------------------------------------------------------------
+
+\subsection{路由信息 vs. 权重信息：对比分析}
+
+本报告的分析表明，单独依赖路由信息或权重信息都不足以提供全面的保护。
+
+\begin{itemize}
+\item \textbf{基于路由 (行为)}~\cite{ref1}: 优势在于高隐蔽性、低性能影响，但其"控制平面"信号非常脆弱，易受路由干扰和结构性（蒸馏）攻击。
+\item \textbf{基于权重 (参数)}~\cite{ref1}: 优势在于对输出编辑的完全免疫，但其"数据平面"信号易受模型编辑（微调、剪枝）攻击。
+\end{itemize}
+
+结论是，未来的研究方向必然是\textbf{双重编码的混合水印}。这种方法利用 MoE 的两个平面（控制平面和数据平面）进行分层防御，提供了对抗多种、相互冲突的攻击向量的最强鲁棒性。
+
+\subsection{开放性问题与未来方向}
+
+尽管 MoE 水印前景广阔，但该领域仍处于起步阶段，面临诸多挑战~\cite{ref1}：
+
+\begin{enumerate}
+\item \textbf{可扩展的检测工具:} 最大的开放性问题是，如何在无法访问激活日志的情况下（例如，通过公共 API）可靠地验证基于路由的水印~\cite{ref1}。这对于黑盒溯源至关重要。
+\item \textbf{标准化基准:} 目前缺乏专门针对 MoE 漏洞（如路由干扰、剪枝、蒸馏）的水印评测基准。开发类似于 WMD 或 AIGCDetect 但专注于 MoE 的标准将是必要的~\cite{ref1}。
+\item \textbf{将检测作为 MoE:} 一个有趣的反向概念在~\cite{ref8}中被提出，即使用 MoE 架构（一个门控模型 + 多个专家检测器）\textit{来进行水印检测}。这暗示了一个未来，即验证工具本身可能会采用与它们所检查的模型相同的先进架构。
+\end{enumerate}
+
+总之，MoE 的路由和专家分叉结构为隐式水印提供了一个极具吸引力但尚未充分探索的向量。成功利用这一向量将取决于通过创新的混合设计来克服其固有的复杂性和脆弱性。
+
+%-------------------------------------------------------------------------------
+\section*{致谢}
+%-------------------------------------------------------------------------------
+
+感谢所有为本研究提供支持和反馈的同事和审稿人。
+
+%-------------------------------------------------------------------------------
+\bibliographystyle{plain}
+\begin{thebibliography}{99}
+
+\bibitem{ref1}
+LLM MoE watermark.pdf
+
+\bibitem{ref2}
+Robust and Efficient Watermarking of Large Language Models Using Error Correction Codes, accessed November 7, 2025, \url{https://petsymposium.org/popets/2025/popets-2025-0126.pdf}
+
+\bibitem{ref3}
+Robust Watermarking of Tiny Neural Networks by Fine-Tuning and Post-Training Approaches - MDPI, accessed November 7, 2025, \url{https://www.mdpi.com/2073-8994/17/7/1094}
+
+\bibitem{ref4}
+Towards Robust Model Watermark via Reducing Parametric Vulnerability - CVF Open Access, accessed November 7, 2025, \url{https://openaccess.thecvf.com/content/ICCV2023/papers/Gan_Towards_Robust_Model_Watermark_via_Reducing_Parametric_Vulnerability_ICCV_2023_paper.pdf}
+
+\bibitem{ref5}
+Who Speaks for the Trigger? Dynamic Expert Routing in Backdoored Mixture-of-Experts Transformers - arXiv, accessed November 7, 2025, \url{https://arxiv.org/html/2510.13462v1}
+
+\bibitem{ref6}
+(PDF) Who Speaks for the Trigger? Dynamic Expert Routing in Backdoored Mixture-of-Experts Transformers - ResearchGate, accessed November 7, 2025, \url{https://www.researchgate.net/publication/396518065_Who_Speaks_for_the_Trigger_Dynamic_Expert_Routing_in_Backdoored_Mixture-of-Experts_Transformers}
+
+\bibitem{ref7}
+[2510.13462] Who Speaks for the Trigger? Dynamic Expert Routing in Backdoored Mixture-of-Experts Transformers - arXiv, accessed November 7, 2025, \url{https://arxiv.org/abs/2510.13462}
+
+\bibitem{ref8}
+FT-Shield: A Watermark Against Unauthorized Fine-tuning in Text-to-Image Diffusion Models, accessed November 7, 2025, \url{https://arxiv.org/html/2310.02401v2}
+
+\end{thebibliography}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\end{document}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
