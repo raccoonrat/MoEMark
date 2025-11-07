@@ -46,7 +46,7 @@
 %-------------------------------------------------------------------------------
 \begin{abstract}
 %-------------------------------------------------------------------------------
-本文提出了混合专家（MoE）架构中路由水印的信息论形式化框架。我们首先定义了路由状态空间 $\mathcal{S}(x) = (\mathbf{r}, \Sigma, \pi)$，其中 $\mathbf{r} \in \Delta^{n-1}$ 为路由分布（位于概率单纯形），$\Sigma \subset [n]$ 为激活专家集合，$\pi \in S_k$ 为激活顺序。基于信息论原理，我们量化了三个主要信息维度的编码容量：组合码（激活模式）、排列码（排列顺序）和连续码（权重量化，考虑概率单纯形约束）。在约束模型性能的条件下，我们建立了率失真（Rate-Distortion）框架，定义了可实现容量和信息-性能权衡函数。针对对抗性攻击，我们采用极小极大（min-max）准则定义鲁棒性，并基于 Le Cam/Pinsker 方法推导了可检性下界。在验证过程中，我们将问题形式化为复合假设检验，采用广义似然比检验（GLRT）或序贯概率比检验（SPRT）构建验证器，并基于 Chernoff/Bhattacharyya 上界间接推导了检测质量的 AUC 下界。最后，我们定义了综合性能指标和帕累托前沿，为 MoE 路由水印的设计和评估提供了严格的理论基础。
+本文提出了混合专家（MoE）架构中路由水印的信息论形式化框架。与以往假设可直接控制路由器输出的方法不同，我们认识到路由器是一个习得的函数，只能通过修改模型参数来间接影响其行为。我们建立了基于参数扰动的信道模型：编码器将水印消息映射为模型参数的结构化扰动 $\Delta\theta$，信道是数据分布 $p(x)$ 对这些扰动的响应，输出是验证者在测试集上观测到的激活模式统计量。我们量化了激活模式（组合码）的编码容量，这是最鲁棒的信息维度。在约束模型性能和隐蔽性的条件下，我们建立了二维率失真（Rate-Distortion）框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$。我们提出了基于约束优化的编码器算法，通过带约束的微调过程实现水印嵌入。针对对抗性攻击，我们采用极小极大（min-max）准则定义鲁棒性，并基于 Le Cam/Pinsker 方法推导了可检性下界。在验证过程中，我们将问题形式化为复合假设检验，采用广义似然比检验（GLRT）或序贯概率比检验（SPRT）构建验证器，并基于 Chernoff/Bhattacharyya 上界间接推导了检测质量的 AUC 下界。最后，我们定义了综合性能指标和帕累托前沿，为 MoE 路由水印的设计和评估提供了严格的理论基础。
 \end{abstract}
 
 
@@ -56,14 +56,17 @@
 
 混合专家（Mixture-of-Experts, MoE）架构通过稀疏激活机制实现了大型神经网络的高效设计。在 MoE 架构中，路由器（Router）负责为每个输入令牌选择性地激活专家子集，这种路由机制为水印嵌入提供了独特的信息载体。然而，目前缺乏对 MoE 路由水印的理论分析框架，特别是从信息论角度对其容量、鲁棒性和检测能力的严格量化。
 
-本文提出了 MoE 路由水印的信息论形式化定义，旨在为路由水印的设计和评估提供理论基础。我们首先建立路由状态空间的数学表示，然后量化不同信息维度的编码容量。在此基础上，我们分析可实现容量与模型性能之间的权衡，推导鲁棒性的信息论下界，并构建验证过程的假设检验框架。本文的贡献包括：
+\textbf{核心挑战}：以往的理论框架存在根本性缺陷，即假设可以直接控制路由器的输出（如路由分布 $\mathbf{r}$、激活集合 $\Sigma$ 等）。然而，在深度学习的现实中，路由器是一个习得的函数 $\mathbf{r} = \text{Router}(x)$，我们无法直接控制其输出，只能通过修改模型参数（如路由器的权重 $\mathbf{w}, b$）或训练过程来间接影响它。
+
+本文提出了 MoE 路由水印的信息论形式化定义，旨在为路由水印的设计和评估提供理论基础。我们建立了基于参数扰动的信道模型，将编码器定义为从水印消息到模型参数扰动的映射，信道是数据分布对这些扰动的响应。我们量化了激活模式（组合码）的编码容量，这是最鲁棒的信息维度。在此基础上，我们建立了二维率失真框架，同时考虑性能失真和统计失真（隐蔽性），并提出了基于约束优化的编码器算法。本文的贡献包括：
 
 \begin{itemize}
-\item 定义了路由状态空间 $\mathcal{S}(x) = (\mathbf{r}, \Sigma, \pi)$ 的三个信息维度（组合码、排列码、连续码）及其容量计算，考虑了概率单纯形约束和温度/噪声影响
-\item 建立了率失真（Rate-Distortion）框架，定义了可实现容量与性能权衡的数学形式
+\item 建立了基于参数扰动的信道模型，明确了编码器、信道和输出的定义，避免了"直接控制输出"的错误假设
+\item 量化了激活模式（组合码）的编码容量，这是最鲁棒的信息维度，而排列码和权重量化在攻击下几乎无法幸存
+\item 建立了二维率失真（Rate-Distortion）框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$（隐蔽性）
+\item 提出了基于约束优化的编码器算法，通过带约束的微调过程实现水印嵌入，使用基于间隔的水印损失函数
 \item 采用极小极大（min-max）准则定义鲁棒性，并基于 Le Cam/Pinsker 方法推导了可检性下界
-\item 针对特定攻击类型（路由器重训练、模型蒸馏、量化与剪枝）给出了量化分析
-\item 构建了基于复合假设检验的验证框架（GLRT/SPRT），并基于错判率上界间接推导了检测能力的 AUC 下界
+\item 构建了基于复合假设检验的验证框架（GLRT/SPRT），强调只使用激活模式特征进行验证
 \end{itemize}
 
 %-------------------------------------------------------------------------------
@@ -92,8 +95,20 @@ $$\mathbf{r} = \text{Router}(x) = \text{Softmax}(\mathbf{w}^T x + b) \in \Delta^
 
 水印系统 $\mathcal{W} = (\mathcal{E}, \mathcal{V})$ 包括：
 \begin{itemize}
-\item $\mathcal{E}$：嵌入过程（Embedding）
-\item $\mathcal{V}$：验证过程（Verification）
+\item $\mathcal{E}$：嵌入过程（Embedding），将水印消息 $m$ 映射为模型参数的结构化扰动 $\Delta\theta$
+\item $\mathcal{V}$：验证过程（Verification），从测试集上的观测特征推断模型是否包含水印
+\end{itemize}
+
+\textbf{关键认识}：与以往假设可以直接控制路由器输出的方法不同，我们认识到：
+\begin{itemize}
+\item \textbf{路由器是一个习得的函数}：$\mathbf{r} = \text{Router}(x) = \text{Softmax}(\mathbf{w}^T x + b)$，我们无法直接控制其输出
+\item \textbf{编码器的真正任务}：不是直接控制 $\mathcal{S}(x)$，而是通过参数扰动 $\Delta\theta$ 在数据分布 $p(x)$ 上使 $\mathcal{S}(x)$ 的统计分布 $p(\mathcal{S}|\theta_{\text{wm}})$ 发生可检测的、偏向消息 $m$ 的偏移
+\item \textbf{信道模型}：
+  \begin{itemize}
+  \item \textbf{输入}：参数扰动 $\Delta\theta$（而非消息 $m$ 或路由状态 $\mathcal{S}(x)$）
+  \item \textbf{信道}：数据分布 $p(x)$ 对 $\Delta\theta$ 的"探测"和"响应"，同一个 $\Delta\theta$ 在不同输入 $x_i$ 上产生不同的 $\mathcal{S}(x_i)$
+  \item \textbf{输出}：验证者在测试集 $\mathcal{T} = \{x_1, \ldots, x_N\}$ 上观测到的特征统计量 $\mathbf{f} = [\mathcal{F}(x_1), \ldots, \mathcal{F}(x_N)]$
+  \end{itemize}
 \end{itemize}
 
 %-------------------------------------------------------------------------------
@@ -159,33 +174,116 @@ C_{\max} &= I_{\text{pattern}} + I_{\text{order}} + I_{\text{weight}}^{\text{eff
 
 \subsection{可实现容量（Achievable Capacity）与编码本视角}
 
-从编码本（Codebook）视角，对每个水印消息 $\mathbf{m}$ 映射为一组偏置向量或门控参数。信道模型为"干净路由分布 $\mathbf{r}$ → 受嵌入扰动 $\mathbf{r}'$ → 攻击与失真 $\mathbf{r}''$ → 验证统计 $Y$"。
+从编码本（Codebook）视角，编码器 $\mathcal{E}$ 将水印消息 $m$ 映射为模型参数的结构化扰动 $\Delta\theta$。信道模型为"参数扰动 $\Delta\theta$ → 数据分布 $p(x)$ 的响应 → 路由状态的后验分布 $p(\mathcal{S}(x)|\theta_{\text{wm}})$ → 验证统计量 $\mathbf{f}$"。
 
-在约束模型性能的条件下，可实现的容量定义为：
-$$C_{\text{achievable}} = \max_{p(\mathbf{m}), p(\mathbf{r}'|\mathbf{m})} I(\mathbf{m}; Y)$$
+在约束模型性能和隐蔽性的条件下，可实现的容量定义为：
+$$C_{\text{achievable}} = \max_{p(m), p(\Delta\theta|m)} I(m; \mathbf{f})$$
 
-其中 $Y$ 为可观测特征（如 $(\Sigma, \pi)$ 或归一化权重），$I(\cdot; \cdot)$ 为互信息。
+其中 $\mathbf{f} = [\mathcal{F}(x_1), \ldots, \mathcal{F}(x_N)]$ 为测试集 $\mathcal{T}$ 上的特征统计量，$I(\cdot; \cdot)$ 为互信息。
+
+\textbf{特征选择}：根据鲁棒性分析，排列码 $I_{\text{order}}$ 和权重量化 $I_{\text{weight}}$ 在攻击下几乎无法幸存。因此，鲁棒的验证者 $\mathcal{V}$ 应该只依赖于激活模式 $\Sigma$。信道输出 $\mathbf{f}$ 可以被精简为：在 $N$ 个样本上观测到的\textbf{激活模式 $\Sigma$ 的经验分布（或计数向量）}。
 
 \subsection{率失真（Rate-Distortion）问题}
 
-将"嵌入强度 $\delta$"与"失真 $D$"联立，定义率失真函数：
+与以往针对单个输入 $x$ 的路由分布 $\mathbf{r}$ 定义失真的方法不同，我们必须在数据分布 $p(x)$ 上定义失真。率失真函数被重新定义为：
+
 \begin{align}
-R(D) &= \max_{p(\mathbf{m}), p(\mathbf{r}'|\mathbf{m})} I(\mathbf{m}; \mathcal{S}(\mathbf{r}')) \nonumber \\
-&\quad \text{s.t.} \quad \mathbb{E}[d(\mathbf{r}', \mathbf{r})] \leq D, \quad \mathbf{r}' \in \Delta^{k-1}
+R(D_{\text{perf}}, D_{\text{detect}}) &= \max_{p(m), p(\Delta\theta|m)} I(m; \mathbf{f}) \nonumber \\
+&\quad \text{s.t.} \quad D_{\text{perf}} \leq \epsilon_1, \quad D_{\text{detect}} \leq \epsilon_2
 \end{align}
 
-其中失真度量 $d(\mathbf{r}', \mathbf{r})$ 可以是：
+其中失真是一个\textbf{二维向量} $D = (D_{\text{perf}}, D_{\text{detect}})$：
+
+\begin{enumerate}
+\item \textbf{性能失真 $D_{\text{perf}}$}：嵌入水印对模型主要任务造成的损害
+$$D_{\text{perf}} = \Delta_{\text{perf}} = \text{Acc}_{\text{clean}} - \text{Acc}_{\text{watermarked}}$$
+
+\item \textbf{统计失真 $D_{\text{detect}}$（可隐蔽性）}：水印在路由统计上留下的痕迹，可被量化为干净模型和水印模型在路由输出分布上的 KL 散度
+$$D_{\text{detect}} = \mathbb{E}_{x \sim p(x)} \left[D_{\text{KL}}\left(p(\mathcal{S}(x)|\theta_{\text{clean}}) || p(\mathcal{S}(x)|\theta_{\text{wm}})\right)\right]$$
+\end{enumerate}
+
+\textbf{失真的双重作用}：
 \begin{itemize}
-\item Kullback-Leibler 散度：$D_{\text{KL}}(\mathbf{r}' || \mathbf{r}) = \sum_i r'_i \log \frac{r'_i}{r_i}$
-\item Rényi 散度：$D_\alpha(\mathbf{r}' || \mathbf{r}) = \frac{1}{\alpha-1} \log \sum_i (r'_i)^{\alpha} (r_i)^{1-\alpha}$
+\item $D_{\text{detect}}$ 越小，水印越\textbf{隐蔽}（越难被攻击者发现）
+\item $D_{\text{detect}}$ 越大，水印越\textbf{可检测}（越容易被验证者验证）
 \end{itemize}
 
-在温度缩放与 top-$k$ 稀疏约束下，$R(D)$ 可通过拉格朗日乘子法求解最优嵌入分布 $p(\mathbf{r}'|\mathbf{m})$，并给出可计算的上下界。
+\textbf{信息-性能-隐蔽性权衡}：通过扫描超参数（如 $\lambda_{\text{wm}}$），可以凭经验绘制出 $R(D_{\text{perf}}, D_{\text{detect}})$ 的帕累托前沿，其中：
+\begin{itemize}
+\item X轴：$D_{\text{perf}}$（模型准确率下降）
+\item Y轴：$R$（水印检测器的统计显著性或 AUC）
+\item Z轴：$D_{\text{detect}}$（隐蔽性，越小越好）
+\end{itemize}
 
-\textbf{信息-性能权衡曲线}：
-$$\mathcal{T}(\epsilon) = \{C: \exists D \text{ s.t. } \Delta_{\text{perf}} \leq \epsilon \text{ and } R(D) = C\}$$
+%-------------------------------------------------------------------------------
+\section{基于约束优化的编码器算法}
+%-------------------------------------------------------------------------------
 
-其中 $\Delta_{\text{perf}} = \text{Acc}_{\text{clean}} - \text{Acc}_{\text{watermarked}}$ 表示性能下降，$\epsilon$ 为性能降级门限。
+\subsection{问题的形式化定义}
+
+编码器 $\mathcal{E}$ 的任务是将水印消息 $m$ 映射为模型参数扰动 $\Delta\theta$。这可以形式化为一个约束优化问题：
+
+\begin{align}
+\max_{\Delta\theta} \quad &\underbrace{\mathbb{E}_{x \sim p(x)} \left[\log p(\Sigma_m | x, \theta_{\text{clean}} + \Delta\theta)\right]}_{\text{水印强度 (R)}} \nonumber \\
+&\quad - \lambda_1 \underbrace{\Delta\mathcal{L}_{\text{task}}(\Delta\theta)}_{\text{性能失真 ($D_{\text{perf}}$)}} - \lambda_2 \underbrace{D_{\text{detect}}(\Delta\theta)}_{\text{隐蔽性失真 ($D_{\text{detect}}$)}}
+\end{align}
+
+其中：
+\begin{itemize}
+\item $m \rightarrow \Sigma_m$：通过带密钥 $K$ 的哈希函数 $H_K(m)$ 将消息 $m$ 映射到目标激活模式 $\Sigma_m$（例如，对于 $n=8, k=2$，共有 $\binom{8}{2} = 28$ 种可能的激活模式）
+\item $\lambda_1, \lambda_2$：拉格朗日乘子，用于在 $R$、$D_{\text{perf}}$ 和 $D_{\text{detect}}$ 之间进行权衡，构成帕累托前沿
+\end{itemize}
+
+\subsection{实用的优化算法}
+
+我们不需要从头开始求解上述问题，可以将其构建为一个\textbf{带约束的微调（Fine-tuning）过程}：
+
+\textbf{算法：基于约束优化的水印嵌入}
+
+\begin{enumerate}
+\item \textbf{目标定义}：选择消息 $m$，通过哈希函数 $H_K(m)$ 生成目标激活模式 $\Sigma_m$。
+
+\item \textbf{损失函数设计}：定义复合损失函数 $\mathcal{L}_{\text{total}}$ 来微调 $\theta_{\text{clean}}$：
+$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}} + \lambda_{\text{wm}} \cdot \mathcal{L}_{\text{wm}}$$
+
+其中：
+\begin{itemize}
+\item $\mathcal{L}_{\text{task}}$：原始模型任务损失（如交叉熵），确保保持在 $D_{\text{perf}} \leq \epsilon_1$ 的约束内
+\item $\lambda_{\text{wm}}$：水印强度超参数，直接控制 $R$ 和 $D_{\text{perf}}$ 之间的权衡
+\item $\mathcal{L}_{\text{wm}}$：水印损失，用于实现 $\max p(\Sigma_m)$ 的目标
+\end{itemize}
+
+\item \textbf{水印损失 $\mathcal{L}_{\text{wm}}$ 的设计}：对于一个输入 $x$，路由器产生 $n$ 个 logits：$\mathbf{l} = [l_1, \ldots, l_n]$。我们的目标是使目标模式 $\Sigma_m$ 中的专家成为 Top-$k$。采用\textbf{基于间隔（Margin-based）的损失}：
+
+\begin{itemize}
+\item 找到 $\Sigma_m$ 中的最低分：$l_{\min\_\text{target}} = \min_{i \in \Sigma_m} l_i$
+\item 找到\textbf{非} $\Sigma_m$ 中的最高分：$l_{\max\_\text{other}} = \max_{i \notin \Sigma_m} l_i$
+\item \textbf{损失函数}：$\mathcal{L}_{\text{wm}} = \text{ReLU}(l_{\max\_\text{other}} - l_{\min\_\text{target}} + \text{margin})$
+\end{itemize}
+
+该损失的含义是："要求目标专家（$\Sigma_m$ 中）的最低分，必须比所有其他专家的最高分还要高出一个 $\text{margin}$。如果这个条件满足，损失为0；否则，就施加一个惩罚。"
+
+\item \textbf{执行编码}：使用 $\mathcal{L}_{\text{total}}$ 对 $\theta_{\text{clean}}$（或仅仅是路由器参数）进行微调几个（甚至几十个）epoch。
+
+这个过程\textbf{自动}找到了一个"折衷"的 $\Delta\theta$：
+\begin{itemize}
+\item 它只在那些\textbf{不会}严重损害 $\mathcal{L}_{\text{task}}$ 的输入 $x$ 上"悄悄地"推高 $\Sigma_m$ 的概率
+\item 它在"最容易"被操纵的输入上嵌入水印，而不是在所有输入上强行嵌入
+\item $\lambda_{\text{wm}}$ 的大小直接控制了 $R$ 和 $D_{\text{perf}}$ 之间的权衡
+\end{itemize}
+\end{enumerate}
+
+\subsection{与理论框架的连接}
+
+该算法完美地连接回了形式化框架：
+
+\begin{itemize}
+\item \textbf{编码器 $\mathcal{E}$}：不再是简单的加法 $\tilde{\mathbf{w}} = \mathbf{w} + \delta \mathbf{b}_{\text{target}}$，而是一个\textbf{优化过程}（即上述的微调算法）
+
+\item \textbf{可实现容量 $C_{\text{achievable}}$}：容量 $R$ 不再是理论上的 $\log_2 \binom{n}{k}$，而是由 $\lambda_{\text{wm}}$ 控制的、在 $D_{\text{perf}}$ 和 $D_{\text{detect}}$ 约束下的\textbf{实际}互信息 $I(m; \mathbf{f})$
+
+\item \textbf{率失真 $R(D)$}：可以通过\textbf{扫描 $\lambda_{\text{wm}}$} 来凭经验绘制出 $R(D_{\text{perf}}, D_{\text{detect}})$ 曲线，完美体现了"信息-性能-隐蔽性权衡"的思想
+\end{itemize}
 
 %-------------------------------------------------------------------------------
 \section{鲁棒性的形式化定义}
@@ -261,14 +359,13 @@ $$\text{Rob}_{\text{quant}} = \left(1 - \frac{2^{-q}}{2}\right)^{n \cdot I_{\tex
 由于参数未知且受攻击扰动，$H_0$ 和 $H_1$ 均为复合假设。给定测试集 $\mathcal{T} = \{x_1, \ldots, x_N\}$，提取特征向量：
 $$\mathbf{f} = [\mathcal{F}(x_1), \ldots, \mathcal{F}(x_N)]$$
 
-其中 $\mathcal{F}$ 为特征提取函数。特征可以是：
-\begin{itemize}
-\item 仅激活集合：$\mathbf{f} = (\Sigma_1, \ldots, \Sigma_N)$
-\item 激活集合 + 排列：$\mathbf{f} = ((\Sigma_1, \pi_1), \ldots, (\Sigma_N, \pi_N))$
-\item 激活集合 + 排列 + 权重：$\mathbf{f} = ((\Sigma_1, \pi_1, \mathbf{r}_{\Sigma_1}), \ldots, (\Sigma_N, \pi_N, \mathbf{r}_{\Sigma_N}))$
-\end{itemize}
+\textbf{特征选择}：根据鲁棒性分析，排列码 $I_{\text{order}}$ 和权重量化 $I_{\text{weight}}$ 在攻击下几乎无法幸存。因此，鲁棒的验证者 $\mathcal{V}$ 应该\textbf{只依赖于激活模式 $\Sigma$}。特征提取函数 $\mathcal{F}$ 定义为：
+$$\mathcal{F}(x) = \Sigma(x)$$
 
-需要进行\textbf{充分统计量}分析，确定哪些特征组合是充分的。
+即只提取激活的专家集合。特征向量为：
+$$\mathbf{f} = (\Sigma_1, \ldots, \Sigma_N)$$
+
+\textbf{信道输出}：验证者观测到的信道输出 $Y$ 是在 $N$ 个样本上观测到的\textbf{激活模式 $\Sigma$ 的经验分布（或计数向量）}。对于 $n$ 个专家、$k$ 个激活的配置，共有 $\binom{n}{k}$ 种可能的激活模式，因此 $\mathbf{f}$ 可以表示为长度为 $\binom{n}{k}$ 的计数向量，其中每个元素表示对应激活模式在测试集上的出现次数。
 
 \subsection{广义似然比检验（GLRT）与序贯概率比检验（SPRT）}
 
@@ -327,27 +424,33 @@ $$\text{s.t.} \quad \Delta_{\text{perf}} \leq \epsilon, \quad \alpha \leq \alpha
 \section{数学推导示例}
 %-------------------------------------------------------------------------------
 
-\subsection{示例：基于激活模式的容量计算}
+\subsection{示例：基于激活模式的水印嵌入}
 
-假设设计仅基于激活模式 $\Sigma$ 进行水印：
+假设设计仅基于激活模式 $\Sigma$ 进行水印，使用 $n=8$ 个专家、$k=2$ 个激活的配置：
 
-\textbf{信息来源}：从 $n$ 个专家中选择 $k$ 个激活
-$$I_{\text{pattern}} = \log_2 \binom{n}{k} = \log_2 \frac{n!}{k!(n-k)!}$$
+\textbf{信息来源}：从 $n=8$ 个专家中选择 $k=2$ 个激活，共有 $\binom{8}{2} = 28$ 种可能的激活模式
+$$I_{\text{pattern}} = \log_2 \binom{8}{2} = \log_2 28 \approx 4.8 \text{ bits}$$
 
-\textbf{编码方案}：使用修改路由权重使特定专家组合优先激活
-$$\tilde{\mathbf{w}} = \mathbf{w} + \delta \mathbf{b}_{\text{target}}$$
+\textbf{消息映射}：通过带密钥 $K$ 的哈希函数 $H_K(m)$ 将消息 $m$（例如 "U-C-Berkeley"）映射到目标激活模式 $\Sigma_m$（例如，$\Sigma_m = \{\text{专家 3, 专家 7}\}$）。
 
-其中 $\mathbf{b}_{\text{target}}$ 为目标激活模式 $\Sigma_{\text{target}}$ 的偏置向量。
+\textbf{编码方案}：使用基于约束优化的微调过程，而非简单的偏置向量加法。定义复合损失函数：
+$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}} + \lambda_{\text{wm}} \cdot \mathcal{L}_{\text{wm}}$$
 
-\textbf{性能约束}：KL 散度限制
-$$D_{\text{KL}}(\mathbf{r}_{\text{clean}} || \mathbf{r}_{\text{watermarked}}) \leq \delta_{\max}$$
+其中水印损失 $\mathcal{L}_{\text{wm}}$ 采用基于间隔的损失：
+$$\mathcal{L}_{\text{wm}} = \text{ReLU}\left(\max_{i \notin \Sigma_m} l_i - \min_{i \in \Sigma_m} l_i + \text{margin}\right)$$
 
-其中 $\mathbf{r}_{\text{clean}}$ 和 $\mathbf{r}_{\text{watermarked}}$ 分别为干净和带水印模型的路由分布。
+该损失要求目标专家（$\Sigma_m$ 中）的最低 logit 必须比所有其他专家的最高 logit 还要高出一个 $\text{margin}$。
 
-\textbf{鲁棒性下界}：对路由器重训练攻击，基于 Pinsker 不等式，若攻击后的 KL 散度满足 $D_{\text{KL}}(\mathbf{r}' || \mathbf{r}_{\text{watermarked}}) \leq \beta$，则检测成功率下界为：
-$$P_{\text{detect}} \geq 1 - \exp\left(-\lambda D_{\text{KL}}\right) - \alpha$$
+\textbf{性能约束}：在数据分布 $p(x)$ 上的性能失真和统计失真
+$$D_{\text{perf}} = \text{Acc}_{\text{clean}} - \text{Acc}_{\text{watermarked}} \leq \epsilon_1$$
+$$D_{\text{detect}} = \mathbb{E}_{x \sim p(x)} \left[D_{\text{KL}}\left(p(\mathcal{S}(x)|\theta_{\text{clean}}) || p(\mathcal{S}(x)|\theta_{\text{wm}})\right)\right] \leq \epsilon_2$$
 
-其中 $\lambda$ 为编码的纠错码强度参数，$\alpha$ 为假阳性率上界。
+\textbf{可实现容量}：通过扫描 $\lambda_{\text{wm}}$，可以凭经验测量实际互信息 $I(m; \mathbf{f})$，其中 $\mathbf{f}$ 是测试集上激活模式的经验分布。实际容量 $C_{\text{achievable}}$ 通常小于理论容量 $I_{\text{pattern}}$，因为需要在性能失真和统计失真之间进行权衡。
+
+\textbf{鲁棒性下界}：对路由器重训练攻击，基于 Pinsker 不等式，若攻击后的分布满足 $D_{\text{KL}}(p_{\text{wm}} || p_{\text{clean}}) \geq \delta$，则验证成功率下界为：
+$$P_{\text{detect}} \geq 1 - \exp\left(-\frac{\delta}{2}\right) - \alpha$$
+
+其中 $\alpha$ 为假阳性率上界。
 
 %-------------------------------------------------------------------------------
 \section{开放的理论问题}
@@ -367,7 +470,7 @@ $$P_{\text{detect}} \geq 1 - \exp\left(-\lambda D_{\text{KL}}\right) - \alpha$$
 \section{结论}
 %-------------------------------------------------------------------------------
 
-本文提出了 MoE 路由水印的信息论形式化框架，为路由水印的设计和评估提供了严格的理论基础。我们定义了路由状态空间 $\mathcal{S}(x) = (\mathbf{r}, \Sigma, \pi)$，量化了三个信息维度的编码容量（考虑了概率单纯形约束和温度/噪声影响），建立了率失真框架以分析可实现容量与性能权衡。采用极小极大准则，我们定义了鲁棒性并基于 Le Cam/Pinsker 方法推导了可检性下界。在验证过程中，我们构建了基于复合假设检验的框架（GLRT/SPRT），并基于错判率上界间接推导了检测质量的 AUC 下界。这些理论结果为 MoE 路由水印的实践应用提供了指导，并为未来的研究指明了方向，包括稀疏门控与单纯形容量的精确化、嵌入-性能的率失真闭环、复合假设检验的稳健验证器以及隐蔽性分析等开放问题。
+本文提出了 MoE 路由水印的信息论形式化框架，为路由水印的设计和评估提供了严格的理论基础。与以往假设可直接控制路由器输出的方法不同，我们建立了基于参数扰动的信道模型，明确了编码器、信道和输出的定义。我们量化了激活模式（组合码）的编码容量，这是最鲁棒的信息维度，而排列码和权重量化在攻击下几乎无法幸存。我们建立了二维率失真框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$（隐蔽性），并提出了基于约束优化的编码器算法，通过带约束的微调过程实现水印嵌入。采用极小极大准则，我们定义了鲁棒性并基于 Le Cam/Pinsker 方法推导了可检性下界。在验证过程中，我们构建了基于复合假设检验的框架（GLRT/SPRT），强调只使用激活模式特征进行验证，并基于错判率上界间接推导了检测质量的 AUC 下界。这些理论结果为 MoE 路由水印的实践应用提供了指导，并为未来的研究指明了方向，包括稀疏门控与单纯形容量的精确化、嵌入-性能-隐蔽性的率失真闭环、复合假设检验的稳健验证器以及隐蔽性分析等开放问题。
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \end{document}
