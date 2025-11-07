@@ -125,7 +125,7 @@
 
 \subsection{核心机制："路由序列作为水印载体"}
 
-这种方法的核心思想是将专家激活的\textit{序列} (sequence) 本身作为水印信号~\cite{ref1}。水印不再是静态的权重扰动，而是一种动态的、基于输入的\textit{行为}。~\cite{ref1}中描述了两种概念性方法：
+这种方法的核心思想是将专家激活的\textit{序列} (sequence) 本身作为水印信号~\cite{ref1}。水印不再是静态的权重扰动，而是一种动态的、基于输入的\textit{行为}。从信息论的角度来看，路由状态空间提供了多个信息维度用于编码水印，包括激活模式、排列顺序和权重量化~\cite{ref9}。~\cite{ref1}中描述了两种概念性方法：
 
 \begin{enumerate}
 \item \textbf{隐式（统计性）:} 通过微调路由器，在"专家使用上创造统计偏差" (statistical deviations in expert usage)~\cite{ref1}。例如，一个带水印的模型在处理中性提示时，可能表现出对专家 3 的异常高使用率。验证者可以通过运行大量查询并进行统计分析，来检测这种在非水印模型中统计上极不可能发生的异常模式。
@@ -203,7 +203,7 @@ MoE 架构在提供新水印载体的同时，也引入了独特的攻击向量�
 \begin{itemize}
 \item \textbf{策略:} "在路由中使用加密哈希" (Use cryptographic hashing in routing)~\cite{ref1}。
 \item \textbf{潜在机制:} 尽管具体的实现机制未被详细阐述~\cite{ref1}，但相关概念（如"显式水印"）提到可以"将一个密钥哈希嵌入到路由决策中" (embedding a keyed hash into routing decisions)~\cite{ref1}。这表明，路由决策可能不仅仅依赖于可训练的权重，还可能依赖于一个基于秘密密钥和输入令牌计算出的、不可更改的哈希值，从而抵抗微调。
-\item \textbf{有效性:} 这种方法并非绝对可靠，但其有效性依赖于冗余设计。相关研究证据表明，在门控网络中结合使用这种策略和"冗余" (redundancy) 设计（例如，可能将信号分散到多个路由层或决策点），可以实现"50-70\% 的信号恢复" (50-70\% signal recovery)~\cite{ref1}。
+\item \textbf{有效性:} 这种方法并非绝对可靠，但其有效性依赖于冗余设计。相关研究证据表明，在门控网络中结合使用这种策略和"冗余" (redundancy) 设计（例如，可能将信号分散到多个路由层或决策点），可以实现"50-70\% 的信号恢复" (50-70\% signal recovery)~\cite{ref1}。从信息论的角度，这种冗余设计可以通过增加编码空间的维度来提高鲁棒性下界~\cite{ref9}。
 \end{itemize}
 
 \textbf{B. 策略二：鲁棒性感知路由 (Robustness-Aware Routing)}
@@ -213,7 +213,7 @@ MoE 架构在提供新水印载体的同时，也引入了独特的攻击向量�
 \begin{itemize}
 \item \textbf{策略:} 构建一个"鲁棒性感知路由器" (robustness-aware router)，例如在 RGMoE（Robust Graph MoE）框架中提出的那样~\cite{ref1}。
 \item \textbf{机制:} 这种路由器经过专门训练，能够"识别受干扰的模式" (identify the perturbed patterns)~\cite{ref1}。
-\item \textbf{防御行为:} 当路由器识别出输入可能受到了对抗性攻击（例如，旨在干扰其决策的噪声或扰动）时，它会"自适应地将每个受干扰的样本路由到相应的鲁棒专家" (adaptively routes each perturbed sample to the corresponding expert that exhibits robustness against that perturbation)~\cite{ref1}。简而言之，路由器学会了在检测到攻击时"激活仅有鲁棒的专家" (activate only the robust experts)，从而绕过攻击的影响~\cite{ref1}。
+\item \textbf{防御行为:} 当路由器识别出输入可能受到了对抗性攻击（例如，旨在干扰其决策的噪声或扰动）时，它会"自适应地将每个受干扰的样本路由到相应的鲁棒专家" (adaptively routes each perturbed sample to the corresponding expert that exhibits robustness against that perturbation)~\cite{ref1}。简而言之，路由器学会了在检测到攻击时"激活仅有鲁棒的专家" (activate only the robust experts)，从而绕过攻击的影响~\cite{ref1}。这种机制在理论上可以通过最大化条件互信息$I(\mathbf{m}; \mathcal{S}'(x) | \mathcal{A})$来形式化，其中$\mathcal{A}$表示攻击变换~\cite{ref9}。
 \end{itemize}
 
 \subsection{数据平面攻击：专家级别攻击 (Expert-Level Attacks)}
@@ -329,8 +329,8 @@ MoE 架构在提供新水印载体的同时，也引入了独特的攻击向量�
 尽管 MoE 水印前景广阔，但该领域仍处于起步阶段，面临诸多挑战~\cite{ref1}：
 
 \begin{enumerate}
-\item \textbf{可扩展的检测工具:} 最大的开放性问题是，如何在无法访问激活日志的情况下（例如，通过公共 API）可靠地验证基于路由的水印~\cite{ref1}。这对于黑盒溯源至关重要。
-\item \textbf{标准化基准:} 目前缺乏专门针对 MoE 漏洞（如路由干扰、剪枝、蒸馏）的水印评测基准。开发类似于 WMD 或 AIGCDetect 但专注于 MoE 的标准将是必要的~\cite{ref1}。
+\item \textbf{可扩展的检测工具:} 最大的开放性问题是，如何在无法访问激活日志的情况下（例如，通过公共 API）可靠地验证基于路由的水印~\cite{ref1}。这对于黑盒溯源至关重要。从信息论的角度，这涉及到在假设检验框架下最大化检测功率（Detection Power），同时控制假阳性率~\cite{ref9}。
+\item \textbf{标准化基准:} 目前缺乏专门针对 MoE 漏洞（如路由干扰、剪枝、蒸馏）的水印评测基准。开发类似于 WMD 或 AIGCDetect 但专注于 MoE 的标准将是必要的~\cite{ref1}。这些基准应该考虑信息容量、鲁棒性和检测性能之间的权衡，并基于形式化的信息论框架~\cite{ref9}。
 \item \textbf{将检测作为 MoE:} 一个有趣的反向概念在~\cite{ref8}中被提出，即使用 MoE 架构（一个门控模型 + 多个专家检测器）\textit{来进行水印检测}。这暗示了一个未来，即验证工具本身可能会采用与它们所检查的模型相同的先进架构。
 \end{enumerate}
 
@@ -369,6 +369,9 @@ Who Speaks for the Trigger? Dynamic Expert Routing in Backdoored Mixture-of-Expe
 
 \bibitem{ref8}
 FT-Shield: A Watermark Against Unauthorized Fine-tuning in Text-to-Image Diffusion Models, accessed November 7, 2025, \url{https://arxiv.org/html/2310.02401v2}
+
+\bibitem{ref9}
+MoE路由水印的信息论形式化定义 (Information-Theoretic Formalization of MoE Routing Watermarking), moe\_routing\_watermark.md, 2025.
 
 \end{thebibliography}
 
