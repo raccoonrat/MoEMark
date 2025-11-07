@@ -35,10 +35,10 @@
 %for single author (just remove % characters)
 \author{
 {\rm Yunhao}\\
-% copy the following lines to add more authors
-% \and
-% {\rm Name}\\
-%Name Institution
+\and
+{\rm Yilong}\\
+\and
+{\rm Qingxiao}\\
 } % end author
 
 \maketitle
@@ -46,7 +46,7 @@
 %-------------------------------------------------------------------------------
 \begin{abstract}
 %-------------------------------------------------------------------------------
-本文提出了混合专家（MoE）架构中路由水印的信息论形式化框架。与以往假设可直接控制路由器输出的方法不同，我们认识到路由器是一个习得的函数，只能通过修改模型参数来间接影响其行为。我们建立了基于参数扰动的信道模型：编码器将水印消息映射为模型参数的结构化扰动 $\Delta\theta$，信道是数据分布 $p(x)$ 对这些扰动的响应，输出是验证者在测试集上观测到的激活模式统计量。我们量化了激活模式（组合码）的编码容量。在约束模型性能和隐蔽性的条件下，我们建立了二维率失真（Rate-Distortion）框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$。我们提出了基于约束优化的编码器算法，通过带约束的微调过程实现水印嵌入。在验证过程中，我们将问题形式化为复合假设检验，采用广义似然比检验（GLRT）或序贯概率比检验（SPRT）构建验证器，并基于 Chernoff/Bhattacharyya 上界间接推导了检测质量的 AUC 下界。最后，我们定义了综合性能指标和帕累托前沿，为 MoE 路由水印的设计和评估提供了严格的理论基础。
+本文提出了混合专家（MoE）架构中路由水印的信息论形式化框架。与以往假设可直接控制路由器输出的方法不同，我们认识到路由器是一个习得的函数，只能通过修改模型参数来间接影响其行为。我们建立了基于参数扰动的信道模型：编码器将水印消息映射为模型参数的结构化扰动 $\Delta\theta$，信道是数据分布 $p(x)$ 对这些扰动的响应，输出是验证者在测试集上观测到的激活模式统计量。我们量化了激活模式（组合码）的编码容量，并揭示了其在语义层面释义攻击下的脆弱性：水印可能对触发器输入过拟合，只学习表层token关联而非语义关联。在约束模型性能和隐蔽性的条件下，我们建立了二维率失真（Rate-Distortion）框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$。我们提出了基于约束优化的编码器算法，引入语义一致性约束来对抗释义攻击，通过带约束的微调过程实现水印嵌入。我们重新定义了鲁棒性，将其拆分为参数鲁棒性 $\mathcal{R}_{\text{param}}$ 和语义鲁棒性 $\mathcal{R}_{\text{input}}$，并建立了四维帕累托前沿。在验证过程中，我们将问题形式化为复合假设检验，采用广义似然比检验（GLRT）或序贯概率比检验（SPRT）构建验证器，并基于 Chernoff/Bhattacharyya 上界间接推导了检测质量的 AUC 下界。最后，我们定义了综合性能指标和扩展的帕累托前沿，为 MoE 路由水印的设计和评估提供了严格的理论基础。
 \end{abstract}
 
 
@@ -64,9 +64,11 @@
 \item 建立了基于参数扰动的信道模型，明确了编码器、信道和输出的定义，避免了"直接控制输出"的错误假设
 \item 量化了激活模式（组合码）的编码容量，这是最稳定的信息维度
 \item 建立了二维率失真（Rate-Distortion）框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$（隐蔽性）
-\item 提出了基于约束优化的编码器算法，通过带约束的微调过程实现水印嵌入，使用基于间隔的水印损失函数
+\item 提出了基于约束优化的编码器算法，引入语义一致性约束来对抗释义攻击，通过带约束的微调过程实现水印嵌入，使用基于间隔的水印损失函数
+\item 揭示了 $I_{\text{pattern}}$ 地基的脆弱性：水印可能对触发器输入过拟合，只学习表层token关联而非语义关联，导致在释义攻击下实际可实现鲁棒容量可能骤降为 0
+\item 重新定义了鲁棒性，将其拆分为参数鲁棒性 $\mathcal{R}_{\text{param}}$ 和语义鲁棒性 $\mathcal{R}_{\text{input}}$，并建立了四维帕累托前沿
 \item 构建了基于复合假设检验的验证框架（GLRT/SPRT），强调只使用激活模式特征进行验证
-\item 分析了语义层面释义攻击对水印检测的影响
+\item 深入分析了语义层面释义攻击对水印检测的影响，揭示了过拟合问题并提出了语义一致性约束的应对策略
 \end{itemize}
 
 %-------------------------------------------------------------------------------
@@ -244,13 +246,15 @@ $$D_{\text{detect}} = \mathbb{E}_{x \sim p(x)} \left[D_{\text{KL}}\left(p(\mathc
 \item \textbf{目标定义}：选择消息 $m$，通过哈希函数 $H_K(m)$ 生成目标激活模式 $\Sigma_m$。
 
 \item \textbf{损失函数设计}：定义复合损失函数 $\mathcal{L}_{\text{total}}$ 来微调 $\theta_{\text{clean}}$：
-$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}} + \lambda_{\text{wm}} \cdot \mathcal{L}_{\text{wm}}$$
+$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}}(x) + \lambda_{\text{wm}} \cdot \mathcal{L}_{\text{wm}}(x) + \lambda_{\text{con}} \cdot \mathcal{L}_{\text{con}}(x, x')$$
 
 其中：
 \begin{itemize}
 \item $\mathcal{L}_{\text{task}}$：原始模型任务损失（如交叉熵），确保保持在 $D_{\text{perf}} \leq \epsilon_1$ 的约束内
 \item $\lambda_{\text{wm}}$：水印强度超参数，直接控制 $R$ 和 $D_{\text{perf}}$ 之间的权衡
 \item $\mathcal{L}_{\text{wm}}$：水印损失，用于实现 $\max p(\Sigma_m)$ 的目标
+\item $\lambda_{\text{con}}$：语义一致性强度超参数，控制 $\mathcal{R}_{\text{input}}$ 和 $\Delta_{\text{perf}}$ 之间的权衡
+\item $\mathcal{L}_{\text{con}}$：语义一致性约束，定义为 $\mathcal{L}_{\text{con}}(x, x') = \text{Dist}(\mathcal{S}(x), \mathcal{S}(x'))$，其中 $x'$ 是 $x$ 的语义等价释义，$\text{Dist}$ 是路由状态之间的距离度量（如 KL 散度或总变分距离）
 \end{itemize}
 
 \item \textbf{水印损失 $\mathcal{L}_{\text{wm}}$ 的设计}：对于一个输入 $x$，路由器产生 $n$ 个 logits：$\mathbf{l} = [l_1, \ldots, l_n]$。我们的目标是使目标模式 $\Sigma_m$ 中的专家成为 Top-$k$。采用\textbf{基于间隔（Margin-based）的损失}：
@@ -270,6 +274,8 @@ $$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}} + \lambda_{\text{wm}} \
 \item 它只在那些\textbf{不会}严重损害 $\mathcal{L}_{\text{task}}$ 的输入 $x$ 上"悄悄地"推高 $\Sigma_m$ 的概率
 \item 它在"最容易"被操纵的输入上嵌入水印，而不是在所有输入上强行嵌入
 \item $\lambda_{\text{wm}}$ 的大小直接控制了 $R$ 和 $D_{\text{perf}}$ 之间的权衡
+\item $\lambda_{\text{con}}$ 的大小直接控制了 $\mathcal{R}_{\text{input}}$ 和 $\Delta_{\text{perf}}$ 以及 $C_{\text{achievable}}$ 之间的权衡
+\item 通过 $\mathcal{L}_{\text{con}}$，模型被迫学习语义层面的特征，而非仅仅依赖表层token关联，从而提高了对释义攻击的鲁棒性
 \end{itemize}
 \end{enumerate}
 
@@ -321,17 +327,37 @@ $$\mathcal{S}(x) = (\mathbf{r}(x), \Sigma(x), \pi(x)) \neq \mathcal{S}(x') = (\m
 \item \textbf{统计分布的稳定性}：在测试集上，即使输入经过释义，激活模式的统计分布 $p(\Sigma|\theta_{\text{wm}})$ 应该保持相对稳定，使得验证者能够检测到水印信号。
 \end{enumerate}
 
-\subsection{应对策略的理论考虑}
+\subsection{应对策略：语义一致性约束}
 
-为了应对语义层面释义攻击，水印系统需要考虑：
+为了修复这个地基，我们的编码器 $\mathcal{E}$ 必须被显著增强。我们不能再使用简单的 $\mathcal{L}_{\text{wm}} = \text{ReLU}(l_{\max\_\text{other}} - l_{\min\_\text{target}} + \text{margin})$。
 
+我们必须引入\textbf{语义一致性约束（Semantic Consistency Constraint）}：
+
+$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}}(x) + \lambda_{\text{wm}} \cdot \mathcal{L}_{\text{wm}}(x) + \lambda_{\text{con}} \cdot \text{Dist}(\mathcal{S}(x), \mathcal{S}(x'))$$
+
+其中 $x'$ 是 $x$ 的一个释义（或通过数据增强、对抗性输入产生），$\text{Dist}$ 是一个距离度量，用于惩罚 $x$ 和 $x'$ 之间路由行为的\textbf{不一致性}。
+
+通过这种方式，我们\textbf{强迫} $\Delta\theta$ 去学习一个\textbf{语义鲁棒}的路由偏好。这使得水印嵌入的成本更高（$D_{\text{perf}}$ 可能更大），但 $\mathcal{R}_{\text{input}}$ 也相应增强了。
+
+\textbf{新的权衡关系}：
+
+\begin{enumerate}
+\item \textbf{$\mathcal{R}_{\text{input}}$ vs $\Delta_{\text{perf}}$（语义鲁棒性 vs 性能）}：
 \begin{itemize}
-\item \textbf{语义感知的编码器}：编码器 $\mathcal{E}$ 应该学习到语义层面的特征，使得参数扰动 $\Delta\theta$ 能够影响语义相关的路由模式，而非仅仅依赖于表面的词汇特征。
-
-\item \textbf{语义不变的特征提取}：验证者 $\mathcal{V}$ 应该提取对语义变化鲁棒的特征。激活模式 $\Sigma$ 的选择需要确保在语义等价的输入下保持相对稳定。
-
-\item \textbf{统计显著性检验}：在验证过程中，需要考虑语义变化对统计分布的影响，使用适当的假设检验方法（如 GLRT/SPRT）来处理这种不确定性。
+\item 为了提高 $\mathcal{R}_{\text{input}}$，我们必须提高 $\lambda_{\text{con}}$。
+\item 但这迫使模型在语义相似的输入上（$x$ 和 $x'$）给出\textbf{一致}的路由行为。
+\item 这是一个\textbf{非常强}的约束，它会干扰模型为 $\mathcal{L}_{\text{task}}$ 所做的正常优化，从而\textbf{不可避免}地导致\textbf{更大的性能下降 $\Delta_{\text{perf}}$}。
 \end{itemize}
+
+\item \textbf{$\mathcal{R}_{\text{input}}$ vs $C_{\text{achievable}}$（语义鲁棒性 vs 容量）}：
+\begin{itemize}
+\item $\mathcal{L}_{\text{con}}$ 约束越多，模型能够"藏匿"水印的"自由空间"就越少。
+\item 我们不能再简单地将水印"过拟合"到特定触发词上。我们必须在整个语义簇上嵌入水印。
+\item 这使得嵌入单个比特（例如 $\Sigma_m$）的难度\textbf{急剧增加}，因此\textbf{可实现容量 $C_{\text{achievable}}$ 会显著下降}。
+\end{itemize}
+\end{enumerate}
+
+这再次回到了论文的核心——\textbf{帕累托前沿}：我们现在必须在一个更高维度的空间（$R$, $D_{\text{perf}}$, $D_{\text{detect}}$, $\mathcal{R}_{\text{param}}$, $\mathcal{R}_{\text{input}}$）中寻找权衡。
 
 %-------------------------------------------------------------------------------
 \section{验证过程与检测能力}
@@ -396,18 +422,44 @@ $$\text{AUC} \geq 1 - \exp(-D_B) - \alpha$$
 
 \subsection{水印质量函数与帕累托前沿}
 
-综合定义水印系统的质量为二维指标：
-$$\mathcal{Q} = (C_{\text{achievable}}, \text{AUC})$$
+\textbf{原始定义的缺陷}：手稿最初将水印质量 $\mathcal{Q}$ 定义为三维指标：$\mathcal{Q} = (C_{\text{achievable}}, \mathcal{R}, \text{AUC})$，其优化目标是 $\max \{C_{\text{achievable}}, \mathcal{R}, \text{AUC}\}$。然而，这里的致命缺陷在于 $\mathcal{R}$（鲁棒性）的定义。手稿中的 $\mathcal{R}$ 是基于极小极大准则定义的，其对抗的攻击族 $\mathcal{A}$ 仅包含了\textbf{参数空间}的攻击（如微调、蒸馏、量化与剪枝），\textbf{完全忽略}了\textbf{输入空间}攻击（文本释义）。一个水印可以对"蒸馏"100\%鲁棒（$\mathcal{R}$ 很高），但对"释义"0\%鲁棒（实际完全不可用）。
 
-其中 $C_{\text{achievable}}$ 为可实现容量，$\text{AUC}$ 为检测 AUC。
+\textbf{扩展的质量定义}：我们必须将 $\mathcal{R}$ 拆分为两个\textbf{独立}且\textbf{相互竞争}的指标：
 
-考虑多目标优化：
-$$\max \{C_{\text{achievable}}, \text{AUC}\}$$
+\begin{enumerate}
+\item \textbf{$\mathcal{R}_{\text{param}}$（参数鲁棒性）}：即手稿中原有的 $\mathcal{R}$，对抗微调、蒸馏等参数空间攻击。
+\item \textbf{$\mathcal{R}_{\text{input}}$（语义鲁棒性）}：\textbf{（手稿缺失）}对抗释义、同义词替换等输入空间规避攻击。
+\end{enumerate}
+
+\textbf{新的质量定义}：综合定义水印系统的质量为\textbf{四维指标}：
+$$\mathcal{Q} = (C_{\text{achievable}}, \mathcal{R}_{\text{param}}, \mathcal{R}_{\text{input}}, \text{AUC})$$
+
+其中：
+\begin{itemize}
+\item $C_{\text{achievable}}$：可实现容量
+\item $\mathcal{R}_{\text{param}}$：参数鲁棒性（对抗参数修改）
+\item $\mathcal{R}_{\text{input}}$：语义鲁棒性（对抗输入空间规避）
+\item $\text{AUC}$：检测 AUC
+\end{itemize}
+
+\textbf{新的多目标优化}：编码器 $\mathcal{E}$（水印嵌入算法）现在必须在一个更复杂的空间中寻找权衡点：
+
+$$\max \{C_{\text{achievable}}, \mathcal{R}_{\text{param}}, \mathcal{R}_{\text{input}}, \text{AUC}\}$$
 $$\text{s.t.} \quad \Delta_{\text{perf}} \leq \epsilon, \quad \alpha \leq \alpha_{\max}$$
 
 \textbf{帕累托前沿}定义为非被支配的解集合，即不存在其他解在所有目标上都不劣于当前解且至少在一个目标上更优。
 
-\textbf{权重设定}：质量函数的加权形式 $Q_{\text{normalized}} = \alpha C_n + \beta A_n$（其中 $\alpha + \beta = 1$）仅用于\textbf{政策选择}（根据具体应用需求选择折中点），而非理论结论。权重来源与任务依赖需明确：不同数据集/任务（如生成式 vs 分类式 MoE）可能需要不同的权重配置。建议以\textbf{Pareto 前沿}为主图呈现不加权的解集，再由应用需求选择折中点。
+\textbf{关键权衡关系}：
+
+\begin{enumerate}
+\item \textbf{$\mathcal{R}_{\text{input}}$ vs $\Delta_{\text{perf}}$（语义鲁棒性 vs 性能）}：为了提高 $\mathcal{R}_{\text{input}}$，必须提高 $\lambda_{\text{con}}$，但这会干扰模型为 $\mathcal{L}_{\text{task}}$ 所做的正常优化，导致更大的性能下降 $\Delta_{\text{perf}}$。
+
+\item \textbf{$\mathcal{R}_{\text{input}}$ vs $C_{\text{achievable}}$（语义鲁棒性 vs 容量）}：$\mathcal{L}_{\text{con}}$ 约束越多，模型能够"藏匿"水印的"自由空间"就越少，不能再简单地将水印"过拟合"到特定触发词上，必须在整个语义簇上嵌入水印，使得嵌入单个比特的难度急剧增加，因此可实现容量 $C_{\text{achievable}}$ 会显著下降。
+\end{enumerate}
+
+\textbf{权重设定}：质量函数的加权形式 $Q_{\text{normalized}} = \alpha C_n + \beta R_{\text{param},n} + \gamma R_{\text{input},n} + \delta A_n$（其中 $\alpha + \beta + \gamma + \delta = 1$）仅用于\textbf{政策选择}（根据具体应用需求选择折中点），而非理论结论。权重来源与任务依赖需明确：不同数据集/任务（如生成式 vs 分类式 MoE）可能需要不同的权重配置。建议以\textbf{Pareto 前沿}为主图呈现不加权的解集，再由应用需求选择折中点。
+
+\textbf{连接开放问题}：这种新框架完美地回应了手稿自己的开放问题，特别是如何构造"稳健验证器"以处理"域漂移"。"文本释义"正是"对抗性域漂移"的一种形式。通过引入 $\mathcal{L}_{\text{con}}$ 作为实现 $\mathcal{R}_{\text{input}}$ 的机制，我们提供了一个具体的工程路径来探索这个更完备、更真实的帕累托前沿，而不是停留在手稿目前这个过于简化的理论模型上。
 
 %-------------------------------------------------------------------------------
 \section{数学推导示例}
@@ -452,14 +504,15 @@ $$P_{\text{detect}} \geq 1 - \exp\left(-\frac{\delta}{2}\right) - \alpha$$
 \item \textbf{嵌入-性能的率失真闭环}：在给定性能降级门限下，能否得到显式的容量上/下界？如何将性能损失上界映射为对路由分布的散度球约束（KL 或 Rényi 散度）？
 \item \textbf{复合假设检验的稳健验证器}：如何构造稳健最优的验证器以处理语义层面的释义攻击？如何比较以 $\Sigma$、$\pi$、$\mathbf{r}_\Sigma$ 为特征的不同充分性与功效？
 \item \textbf{隐蔽性（Steganographic Security）与可检性下界}：路由分布的统计隐蔽性如何量化？如何定义对手的检测器族并给出最小可辨性下界？
-\item \textbf{语义层面的稳定性}：如何设计水印嵌入算法，使得激活模式对语义等价的输入保持稳定？如何量化语义变化对路由状态分布的影响？
+\item \textbf{语义层面的稳定性与泛化能力}：如何设计水印嵌入算法，使得激活模式对语义等价的输入保持稳定？如何量化语义变化对路由状态分布的影响？如何避免水印对触发器输入的过拟合，确保学习到语义概念关联而非表层token关联？
+\item \textbf{四维帕累托前沿的探索}：如何在更高维度的空间（$C_{\text{achievable}}$, $\mathcal{R}_{\text{param}}$, $\mathcal{R}_{\text{input}}$, $\text{AUC}$）中寻找最优权衡点？如何量化 $\mathcal{R}_{\text{input}}$ 与 $\Delta_{\text{perf}}$ 以及 $\mathcal{R}_{\text{input}}$ 与 $C_{\text{achievable}}$ 之间的权衡关系？
 \end{enumerate}
 
 %-------------------------------------------------------------------------------
 \section{结论}
 %-------------------------------------------------------------------------------
 
-本文提出了 MoE 路由水印的信息论形式化框架，为路由水印的设计和评估提供了严格的理论基础。与以往假设可直接控制路由器输出的方法不同，我们建立了基于参数扰动的信道模型，明确了编码器、信道和输出的定义。我们量化了激活模式（组合码）的编码容量，这是最稳定的信息维度。我们建立了二维率失真框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$（隐蔽性），并提出了基于约束优化的编码器算法，通过带约束的微调过程实现水印嵌入。我们分析了语义层面释义攻击对水印检测的影响，并讨论了应对策略的理论考虑。在验证过程中，我们构建了基于复合假设检验的框架（GLRT/SPRT），强调只使用激活模式特征进行验证，并基于错判率上界间接推导了检测质量的 AUC 下界。这些理论结果为 MoE 路由水印的实践应用提供了指导，并为未来的研究指明了方向，包括稀疏门控与单纯形容量的精确化、嵌入-性能-隐蔽性的率失真闭环、复合假设检验的稳健验证器、隐蔽性分析以及语义层面的稳定性等开放问题。
+本文提出了 MoE 路由水印的信息论形式化框架，为路由水印的设计和评估提供了严格的理论基础。与以往假设可直接控制路由器输出的方法不同，我们建立了基于参数扰动的信道模型，明确了编码器、信道和输出的定义。我们量化了激活模式（组合码）的编码容量，并揭示了其在语义层面释义攻击下的脆弱性：水印可能对触发器输入过拟合，只学习表层token关联而非语义关联，导致实际可实现鲁棒容量可能骤降为 0。我们建立了二维率失真框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$（隐蔽性），并提出了基于约束优化的编码器算法，引入语义一致性约束来对抗释义攻击，通过带约束的微调过程实现水印嵌入。我们重新定义了鲁棒性，将其拆分为参数鲁棒性 $\mathcal{R}_{\text{param}}$ 和语义鲁棒性 $\mathcal{R}_{\text{input}}$，并建立了四维帕累托前沿，揭示了 $\mathcal{R}_{\text{input}}$ 与 $\Delta_{\text{perf}}$ 以及 $\mathcal{R}_{\text{input}}$ 与 $C_{\text{achievable}}$ 之间的关键权衡关系。在验证过程中，我们构建了基于复合假设检验的框架（GLRT/SPRT），强调只使用激活模式特征进行验证，并基于错判率上界间接推导了检测质量的 AUC 下界。这些理论结果为 MoE 路由水印的实践应用提供了指导，并为未来的研究指明了方向，包括稀疏门控与单纯形容量的精确化、嵌入-性能-隐蔽性的率失真闭环、复合假设检验的稳健验证器、隐蔽性分析、语义层面的稳定性与泛化能力以及四维帕累托前沿的探索等开放问题。
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \end{document}
