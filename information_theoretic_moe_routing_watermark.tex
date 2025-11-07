@@ -46,7 +46,7 @@
 %-------------------------------------------------------------------------------
 \begin{abstract}
 %-------------------------------------------------------------------------------
-本文提出了混合专家（MoE）架构中路由水印的信息论形式化框架，聚焦于模型输入空间的语义层面释义攻击。我们建立了基于参数扰动的信道模型：编码器将水印消息映射为模型参数的结构化扰动 $\Delta\theta$，信道是数据分布 $p(x)$ 对这些扰动的响应，输出是验证者在测试集上观测到的激活模式统计量。我们量化了激活模式（组合码）的编码容量，并揭示了其在语义层面释义攻击下的脆弱性：水印可能对触发器输入过拟合，只学习表层token关联而非语义关联。在约束模型性能和隐蔽性的条件下，我们建立了二维率失真（Rate-Distortion）框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$。我们提出了基于约束优化的编码器算法，引入语义一致性约束来对抗输入空间的释义攻击，通过带约束的微调过程实现水印嵌入。我们定义了语义鲁棒性 $\mathcal{R}_{\text{input}}$ 来量化水印对输入空间规避攻击的抵抗能力，并建立了四维帕累托前沿。在验证过程中，我们将问题形式化为复合假设检验，采用广义似然比检验（GLRT）或序贯概率比检验（SPRT）构建验证器，并基于 Chernoff/Bhattacharyya 上界间接推导了检测质量的 AUC 下界。最后，我们定义了综合性能指标和扩展的帕累托前沿，为 MoE 路由水印的设计和评估提供了严格的理论基础。
+本文提出了混合专家（MoE）架构中路由水印的信息论形式化框架，采用\textbf{后处理（Post-processing）}范式，聚焦于模型输入空间的语义层面释义攻击。我们建立了基于推理时扰动模块的信道模型：编码器将水印消息映射为推理时扰动模块 $\mathcal{P}$，该模块在推理阶段对路由器的 logits 输出施加可控扰动，信道是原始干净模型 $\theta_{\text{clean}}$ 和数据分布 $p(x)$ 对扰动策略 $\mathcal{P}$ 的联合响应，输出是验证者在测试集上观测到的激活模式统计量。我们量化了激活模式（组合码，Combination Code）的编码容量，并揭示了其在语义层面释义攻击下的脆弱性：水印可能对触发器输入过拟合，只学习表层token关联而非语义关联。在约束模型性能和隐蔽性的条件下，我们建立了二维率失真（Rate-Distortion）框架，同时考虑性能失真 $D_{\text{perf}}$（由推理时扰动造成的瞬时性能下降）和统计失真 $D_{\text{detect}}$（仅基于激活模式 $\Sigma$，确保与验证器特征一致）。我们提出了路由分布扰动型后处理水印机制，通过语义感知的扰动模块设计来对抗输入空间的释义攻击，将语义鲁棒性的实现从训练损失转移到扰动模块的算法设计上。我们定义了语义等价类和鲁棒容量 $C_{\text{robust}}$，并定义了语义鲁棒性 $\mathcal{R}_{\text{input}}$ 来量化水印对输入空间规避攻击的抵抗能力，建立了四维帕累托前沿。在验证过程中，我们将问题形式化为复合假设检验，显式化观测向量为多项分布模型，采用广义似然比检验（GLRT）或序贯概率比检验（SPRT）构建验证器，并基于多项分布族的 Bhattacharyya 距离推导了检测质量的 AUC 下界。最后，我们定义了综合性能指标和扩展的帕累托前沿，为 MoE 路由水印的设计和评估提供了严格的理论基础。
 \end{abstract}
 
 
@@ -56,20 +56,69 @@
 
 混合专家（Mixture-of-Experts, MoE）架构通过稀疏激活机制实现了大型神经网络的高效设计。在 MoE 架构中，路由器（Router）负责为每个输入令牌选择性地激活专家子集，这种路由机制为水印嵌入提供了独特的信息载体。然而，目前缺乏对 MoE 路由水印的理论分析框架，特别是从信息论角度对其容量和检测能力的严格量化。
 
-\textbf{核心挑战}：在实际应用中，水印面临的主要威胁来自模型输入空间的攻击，特别是语义层面的释义攻击。攻击者通过保持语义不变但改变输入表达的方式来规避水印检测，这要求水印系统具备对输入空间变化的鲁棒性。路由器是一个习得的函数 $\mathbf{r} = \text{Router}(x)$，我们通过修改模型参数（如路由器的权重 $\mathbf{w}, b$）或训练过程来间接影响其行为。
+\textbf{核心挑战}：在实际应用中，水印面临的主要威胁来自模型输入空间的攻击，特别是语义层面的释义攻击。攻击者通过保持语义不变但改变输入表达的方式来规避水印检测，这要求水印系统具备对输入空间变化的鲁棒性。
 
-本文提出了 MoE 路由水印的信息论形式化定义，聚焦于模型输入空间的语义层面释义攻击。我们建立了基于参数扰动的信道模型，将编码器定义为从水印消息到模型参数扰动的映射，信道是数据分布对这些扰动的响应。我们量化了激活模式（组合码）的编码容量，并深入分析了其在输入空间攻击下的脆弱性。在此基础上，我们建立了二维率失真框架，同时考虑性能失真和统计失真（隐蔽性），并提出了基于约束优化的编码器算法，引入语义一致性约束来对抗输入空间的释义攻击。本文的贡献包括：
+\textbf{核心转变}：本文采用\textbf{后处理（Post-processing）}范式，水印嵌入\textbf{不}通过修改模型参数 $\Delta\theta$ 或约束微调实现，而是在推理阶段通过后处理模块 $\mathcal{P}$ 对路由器的输出施加可控扰动。这种转变具有以下优势：（1）\textbf{非侵入性}：不需要修改模型参数，保持原始模型完整性；（2）\textbf{部署灵活性}：可以动态启用或禁用水印；（3）\textbf{动态撤销}：可以随时移除水印而不影响模型。
+
+本文提出了 MoE 路由水印的信息论形式化定义，采用后处理框架，聚焦于模型输入空间的语义层面释义攻击。我们建立了基于推理时扰动模块的信道模型，将编码器定义为推理时扰动模块 $\mathcal{P}$，信道是原始干净模型和数据分布对扰动策略的联合响应。我们量化了激活模式（组合码，Combination Code）的编码容量，并深入分析了其在输入空间攻击下的脆弱性。在此基础上，我们建立了二维率失真框架，同时考虑性能失真（由推理时扰动造成的瞬时性能下降）和统计失真（隐蔽性），并提出了路由分布扰动型后处理水印机制，通过语义感知的扰动模块设计来对抗输入空间的释义攻击。本文的贡献包括：
 
 \begin{itemize}
-\item 建立了基于参数扰动的信道模型，明确了编码器、信道和输出的定义，聚焦于模型输入空间的攻击场景
-\item 量化了激活模式（组合码）的编码容量，这是最稳定的信息维度
-\item 建立了二维率失真（Rate-Distortion）框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$（隐蔽性）
-\item 提出了基于约束优化的编码器算法，引入语义一致性约束来对抗输入空间的释义攻击，通过带约束的微调过程实现水印嵌入，使用基于间隔的水印损失函数
+\item 建立了基于推理时扰动模块的信道模型，明确了编码器（扰动模块 $\mathcal{P}$）、信道和输出的定义，采用后处理范式实现非侵入性水印嵌入
+\item 量化了激活模式（组合码，Combination Code）的编码容量，这是最稳定的信息维度
+\item 建立了二维率失真（Rate-Distortion）框架，同时考虑性能失真 $D_{\text{perf}}$（由推理时扰动造成）和统计失真 $D_{\text{detect}}$（隐蔽性）
+\item 提出了路由分布扰动型后处理水印机制，通过语义感知的扰动模块设计来对抗输入空间的释义攻击，将语义鲁棒性的实现从训练损失转移到扰动模块的算法设计上
 \item 揭示了 $I_{\text{pattern}}$ 在输入空间攻击下的脆弱性：水印可能对触发器输入过拟合，只学习表层token关联而非语义关联，导致在释义攻击下实际可实现鲁棒容量可能骤降为 0
-\item 定义了语义鲁棒性 $\mathcal{R}_{\text{input}}$ 来量化水印对输入空间规避攻击的抵抗能力，并建立了四维帕累托前沿
-\item 构建了基于复合假设检验的验证框架（GLRT/SPRT），强调只使用激活模式特征进行验证
-\item 深入分析了语义层面释义攻击对水印检测的影响，揭示了过拟合问题并提出了语义一致性约束的应对策略
+\item 定义了语义等价类和鲁棒容量 $C_{\text{robust}}$，并定义了语义鲁棒性 $\mathcal{R}_{\text{input}}$ 来量化水印对输入空间规避攻击的抵抗能力，建立了四维帕累托前沿
+\item 构建了基于复合假设检验的验证框架（GLRT/SPRT），强调只使用激活模式特征进行验证，显式化观测向量为多项分布模型
+\item 深入分析了语义层面释义攻击对水印检测的影响，揭示了过拟合问题并提出了语义感知扰动模块的应对策略
 \end{itemize}
+
+%-------------------------------------------------------------------------------
+\section{符号表}
+%-------------------------------------------------------------------------------
+
+为便于阅读，本节汇总本文使用的主要符号：
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{符号} & \textbf{含义} \\
+\midrule
+$n$ & 专家总数 \\
+$k$ & top-$k$ 激活数 \\
+$T$ & 温度参数（控制路由分布锐度） \\
+$\sigma$ & 归一化噪声参数 \\
+$\mathbf{r} \in \Delta^{n-1}$ & 路由分布向量（概率单纯形） \\
+$\Sigma \subset [n]$ & 激活的专家集合，$|\Sigma| = k$ \\
+$\pi \in S_k$ & 激活顺序（排列） \\
+$\mathcal{S}(x) = (\mathbf{r}, \Sigma, \pi)$ & 路由状态 \\
+$\theta_{\text{clean}}, \theta_{\text{wm}}$ & 干净模型和水印模型的参数 \\
+$\Delta\theta$ & 参数扰动（原始框架，已弃用） \\
+$\mathcal{P}$ & 推理时扰动模块（后处理框架） \\
+$\delta_l$ & logits 扰动向量 \\
+$m$ & 水印消息 \\
+$\Sigma_m$ & 目标激活模式（由消息 $m$ 映射） \\
+$I_{\text{pattern}}$ & 激活模式（组合码，Combination Code）容量 \\
+$C_{\text{achievable}}$ & 可实现容量 \\
+$C_{\text{robust}}$ & 鲁棒容量（考虑语义等价类） \\
+$D_{\text{perf}}$ & 性能失真 \\
+$D_{\text{detect}}$ & 统计失真（隐蔽性，基于 $\Sigma$） \\
+$\epsilon_1, \epsilon_2$ & 性能失真和统计失真的阈值 \\
+$\lambda_{\text{wm}}, \lambda_{\text{con}}$ & 水印损失和一致性约束的权重 \\
+$\mathcal{R}_{\text{param}}$ & 参数鲁棒性 \\
+$\mathcal{R}_{\text{input}}$ & 语义鲁棒性（输入空间鲁棒性） \\
+$\mathbf{c} \in \mathbb{N}^{\binom{n}{k}}$ & 激活模式计数向量 \\
+$\mathbf{p} = [p_1, \ldots, p_{\binom{n}{k}}]$ & 激活模式概率分布向量 \\
+$D_B$ & Bhattacharyya 距离 \\
+$\alpha, \beta$ & 假阳性率和检测功效 \\
+$N$ & 测试样本数 \\
+\bottomrule
+\end{tabular}
+\caption{主要符号表}
+\label{tab:symbols}
+\end{table}
 
 %-------------------------------------------------------------------------------
 \section{基础符号与系统定义}
@@ -97,19 +146,21 @@ $$\mathbf{r} = \text{Router}(x) = \text{Softmax}(\mathbf{w}^T x + b) \in \Delta^
 
 水印系统 $\mathcal{W} = (\mathcal{E}, \mathcal{V})$ 包括：
 \begin{itemize}
-\item $\mathcal{E}$：嵌入过程（Embedding），将水印消息 $m$ 映射为模型参数的结构化扰动 $\Delta\theta$
+\item $\mathcal{E}$：嵌入过程（Embedding），在\textbf{后处理框架}下，编码器 $\mathcal{E}$ 是一个\textbf{推理时扰动模块 $\mathcal{P}$（Inference-Time Perturbation Module）}。它接收水印消息 $m$ 和原始路由器的输出 $\mathbf{l}$（logits），并实时计算出一个扰动 $\delta_l$，使得扰动后的 logits $\mathbf{l}' = \mathbf{l} + \delta_l$ 对应的激活模式 $\Sigma(x)$ 偏向目标模式 $\Sigma_m$
 \item $\mathcal{V}$：验证过程（Verification），从测试集上的观测特征推断模型是否包含水印
 \end{itemize}
 
-\textbf{信道模型}：
+\textbf{核心转变}：水印嵌入\textbf{不}通过修改模型参数 $\Delta\theta$ 或约束微调实现，而是在推理阶段通过后处理模块 $\mathcal{P}$ 对路由器的输出施加可控扰动。
+
+\textbf{信道模型（后处理框架）}：
 \begin{itemize}
 \item \textbf{路由器是一个习得的函数}：$\mathbf{r} = \text{Router}(x) = \text{Softmax}(\mathbf{w}^T x + b)$，其输出依赖于输入 $x$
-\item \textbf{编码器的任务}：通过参数扰动 $\Delta\theta$ 在数据分布 $p(x)$ 上使 $\mathcal{S}(x)$ 的统计分布 $p(\mathcal{S}|\theta_{\text{wm}})$ 发生可检测的、偏向消息 $m$ 的偏移
+\item \textbf{编码器的任务}：通过推理时扰动模块 $\mathcal{P}$ 对特定输入 $x$ 的路由 logits $\mathbf{l}$ 施加扰动 $\delta_l$，使得激活模式 $\Sigma(x)$ 强制变为目标模式 $\Sigma_m$，从而在数据分布 $p(x)$ 上使 $\mathcal{S}(x)$ 的统计分布 $p(\mathcal{S}|\theta_{\text{clean}}, \mathcal{P})$ 发生可检测的、偏向消息 $m$ 的偏移
 \item \textbf{信道定义}：
   \begin{itemize}
-  \item \textbf{输入}：参数扰动 $\Delta\theta$
-  \item \textbf{信道}：数据分布 $p(x)$ 对 $\Delta\theta$ 的"探测"和"响应"，同一个 $\Delta\theta$ 在不同输入 $x_i$ 上产生不同的 $\mathcal{S}(x_i)$
-  \item \textbf{输出}：验证者在测试集 $\mathcal{T} = \{x_1, \ldots, x_N\}$ 上观测到的特征统计量 $\mathbf{f} = [\mathcal{F}(x_1), \ldots, \mathcal{F}(x_N)]$
+  \item \textbf{输入}：扰动策略 $\mathcal{P}$（而非参数扰动 $\Delta\theta$）
+  \item \textbf{信道}：原始（干净）模型 $\theta_{\text{clean}}$ 和数据分布 $p(x)$ 对该扰动策略 $\mathcal{P}$ 的联合响应。对于每个输入 $x$，$\mathcal{P}$ 根据 $x$ 的特征决定是否激活并计算扰动 $\delta_l$，从而影响 $\mathcal{S}(x)$
+  \item \textbf{输出}：验证者在测试集 $\mathcal{T} = \{x_1, \ldots, x_N\}$ 上观测到的特征统计量 $\mathbf{f} = [\mathcal{F}(x_1), \ldots, \mathcal{F}(x_N)]$，其中 $\mathcal{F}(x_i) = \Sigma(x_i)$ 为激活模式
   \end{itemize}
 \end{itemize}
 
@@ -135,7 +186,7 @@ $$\mathcal{S}(x) = (\mathbf{r}, \Sigma, \pi) \in \Delta^{n-1} \times 2^{[n]} \ti
 
 路由状态空间提供了三个主要的信息维度用于编码水印：
 
-\textbf{维度1：激活模式（组合码）}
+\textbf{维度1：激活模式（组合码，Combination Code）}
 
 从 $n$ 个专家中选择 $k$ 个激活，信息容量为：
 $$I_{\text{pattern}} = \log_2 \binom{n}{k} = \log_2 \frac{n!}{k!(n-k)!}$$
@@ -176,12 +227,12 @@ C_{\max} &= I_{\text{pattern}} + I_{\text{order}} + I_{\text{weight}}^{\text{eff
 
 \subsection{可实现容量（Achievable Capacity）与编码本视角}
 
-从编码本（Codebook）视角，编码器 $\mathcal{E}$ 将水印消息 $m$ 映射为模型参数的结构化扰动 $\Delta\theta$。信道模型为"参数扰动 $\Delta\theta$ → 数据分布 $p(x)$ 的响应 → 路由状态的后验分布 $p(\mathcal{S}(x)|\theta_{\text{wm}})$ → 验证统计量 $\mathbf{f}$"。
+从编码本（Codebook）视角，在\textbf{后处理框架}下，编码器 $\mathcal{E}$（即扰动模块 $\mathcal{P}$）将水印消息 $m$ 映射为推理时的扰动策略。信道模型为"扰动策略 $\mathcal{P}$ → 原始模型 $\theta_{\text{clean}}$ 和数据分布 $p(x)$ 的联合响应 → 路由状态的后验分布 $p(\mathcal{S}(x)|\theta_{\text{clean}}, \mathcal{P})$ → 验证统计量 $\mathbf{f}$"。
 
 在约束模型性能和隐蔽性的条件下，可实现的容量定义为：
-$$C_{\text{achievable}} = \max_{p(m), p(\Delta\theta|m)} I(m; \mathbf{f})$$
+$$C_{\text{achievable}} = \max_{p(m), \mathcal{P}} I(m; \mathbf{f})$$
 
-其中 $\mathbf{f} = [\mathcal{F}(x_1), \ldots, \mathcal{F}(x_N)]$ 为测试集 $\mathcal{T}$ 上的特征统计量，$I(\cdot; \cdot)$ 为互信息。
+其中 $\mathbf{f} = [\mathcal{F}(x_1), \ldots, \mathcal{F}(x_N)]$ 为测试集 $\mathcal{T}$ 上的特征统计量（激活模式计数向量 $\mathbf{c}$），$I(\cdot; \cdot)$ 为互信息。容量 $C_{\text{achievable}}$ 由扰动模块 $\mathcal{P}$ 在 $D_{\text{perf}}$ 和 $D_{\text{detect}}$ 约束下实际能稳定注入的互信息 $I(m; \mathbf{f})$ 决定。
 
 \textbf{特征选择}：排列码 $I_{\text{order}}$ 和权重量化 $I_{\text{weight}}$ 在语义变化下不稳定。因此，验证者 $\mathcal{V}$ 应该只依赖于激活模式 $\Sigma$。信道输出 $\mathbf{f}$ 可以被精简为：在 $N$ 个样本上观测到的\textbf{激活模式 $\Sigma$ 的经验分布（或计数向量）}。
 
@@ -190,18 +241,20 @@ $$C_{\text{achievable}} = \max_{p(m), p(\Delta\theta|m)} I(m; \mathbf{f})$$
 在数据分布 $p(x)$ 上定义失真。率失真函数定义为：
 
 \begin{align}
-R(D_{\text{perf}}, D_{\text{detect}}) &= \max_{p(m), p(\Delta\theta|m)} I(m; \mathbf{f}) \nonumber \\
+R(D_{\text{perf}}, D_{\text{detect}}) &= \max_{p(m), \mathcal{P}} I(m; \mathbf{f}) \nonumber \\
 &\quad \text{s.t.} \quad D_{\text{perf}} \leq \epsilon_1, \quad D_{\text{detect}} \leq \epsilon_2
 \end{align}
 
-其中失真是一个\textbf{二维向量} $D = (D_{\text{perf}}, D_{\text{detect}})$：
+其中失真是一个\textbf{二维向量} $D = (D_{\text{perf}}, D_{\text{detect}})$，在\textbf{后处理框架}下各项指标的来源如下：
 
 \begin{enumerate}
-\item \textbf{性能失真 $D_{\text{perf}}$}：嵌入水印对模型主要任务造成的损害
-$$D_{\text{perf}} = \Delta_{\text{perf}} = \text{Acc}_{\text{clean}} - \text{Acc}_{\text{watermarked}}$$
+\item \textbf{性能失真 $D_{\text{perf}}$}：由推理时扰动 $\mathcal{P}$ 造成的模型主任务性能下降
+$$D_{\text{perf}} = \Delta_{\text{perf}} = \text{Acc}_{\text{clean}} - \text{Acc}_{\text{clean} + \mathcal{P}}$$
+其中 $\text{Acc}_{\text{clean} + \mathcal{P}}$ 表示在干净模型上应用扰动模块 $\mathcal{P}$ 后的准确率。性能失真来源于扰动 $\mathcal{P}$ 对任务损失 $\mathcal{L}_{\text{task}}$ 的瞬时干扰。
 
-\item \textbf{统计失真 $D_{\text{detect}}$（可隐蔽性）}：水印在路由统计上留下的痕迹，可被量化为干净模型和水印模型在路由输出分布上的 KL 散度
-$$D_{\text{detect}} = \mathbb{E}_{x \sim p(x)} \left[D_{\text{KL}}\left(p(\mathcal{S}(x)|\theta_{\text{clean}}) || p(\mathcal{S}(x)|\theta_{\text{wm}})\right)\right]$$
+\item \textbf{统计失真 $D_{\text{detect}}$（可隐蔽性）}：扰动 $\mathcal{P}$ 引入的统计痕迹，为确保与验证器使用的观测特征一致，我们仅基于激活模式 $\Sigma$ 的分布进行度量：
+$$D_{\text{detect}} = \mathbb{E}_{x \sim p(x)} \left[D_{\text{KL}}\left(p(\Sigma(x)|\theta_{\text{clean}}) || p(\Sigma(x)|\theta_{\text{clean}}, \mathcal{P})\right)\right]$$
+其中 $p(\Sigma|\theta_{\text{clean}}, \mathcal{P})$ 表示在干净模型 $\theta_{\text{clean}}$ 上应用扰动模块 $\mathcal{P}$ 后激活模式 $\Sigma$ 的条件分布。该定义保证了训练中的隐蔽性度量与验证器使用的观测分布（仅激活模式计数）的一致性。统计失真来源于扰动 $\mathcal{P}$ 引起的 $p(\Sigma)$ 分布偏移。
 \end{enumerate}
 
 \textbf{失真的双重作用}：
@@ -218,77 +271,71 @@ $$D_{\text{detect}} = \mathbb{E}_{x \sim p(x)} \left[D_{\text{KL}}\left(p(\mathc
 \end{itemize}
 
 %-------------------------------------------------------------------------------
-\section{基于约束优化的编码器算法}
+\section{路由后处理水印机制（编码器 $\mathcal{E}$ 的实现）}
 %-------------------------------------------------------------------------------
 
 \subsection{问题的形式化定义}
 
-编码器 $\mathcal{E}$ 的任务是将水印消息 $m$ 映射为模型参数扰动 $\Delta\theta$。这可以形式化为一个约束优化问题：
+在\textbf{后处理框架}下，编码器 $\mathcal{E}$ 的任务是将水印消息 $m$ 映射为推理时扰动模块 $\mathcal{P}$。扰动模块 $\mathcal{P}$ 在推理时对路由器的 logits 输出施加扰动，使得激活模式 $\Sigma(x)$ 偏向目标模式 $\Sigma_m$。
 
-\begin{align}
-\max_{\Delta\theta} \quad &\underbrace{\mathbb{E}_{x \sim p(x)} \left[\log p(\Sigma_m | x, \theta_{\text{clean}} + \Delta\theta)\right]}_{\text{水印强度 (R)}} \nonumber \\
-&\quad - \lambda_1 \underbrace{\Delta\mathcal{L}_{\text{task}}(\Delta\theta)}_{\text{性能失真 ($D_{\text{perf}}$)}} - \lambda_2 \underbrace{D_{\text{detect}}(\Delta\theta)}_{\text{隐蔽性失真 ($D_{\text{detect}}$)}}
-\end{align}
+对于输入 $x$，路由器产生原始 logits $\mathbf{l} = [l_1, \ldots, l_n]$。扰动模块 $\mathcal{P}$ 计算扰动 $\delta_l$，使得扰动后的 logits $\mathbf{l}' = \mathbf{l} + \delta_l$ 满足：
+$$\min_{i \in \Sigma_m} l'_i > \max_{i \notin \Sigma_m} l'_i + \text{margin}$$
 
-其中：
-\begin{itemize}
-\item $m \rightarrow \Sigma_m$：通过带密钥 $K$ 的哈希函数 $H_K(m)$ 将消息 $m$ 映射到目标激活模式 $\Sigma_m$（例如，对于 $n=8, k=2$，共有 $\binom{8}{2} = 28$ 种可能的激活模式）
-\item $\lambda_1, \lambda_2$：拉格朗日乘子，用于在 $R$、$D_{\text{perf}}$ 和 $D_{\text{detect}}$ 之间进行权衡，构成帕累托前沿
-\end{itemize}
+其中 $m \rightarrow \Sigma_m$：通过带密钥 $K$ 的哈希函数 $H_K(m)$ 将消息 $m$ 映射到目标激活模式 $\Sigma_m$。
 
-\subsection{实用的优化算法}
+\subsection{路由分布扰动型实现（方案A）}
 
-我们不需要从头开始求解上述问题，可以将其构建为一个\textbf{带约束的微调（Fine-tuning）过程}：
+\textbf{核心思想}：在推理时，对特定输入 $x$，使其激活模式 $\Sigma(x)$ 强制变为目标模式 $\Sigma_m$。这是\textbf{最稳定的信息维度}（激活模式，组合码 $I_{\text{pattern}}$）的实现方案。
 
-\textbf{算法：基于约束优化的水印嵌入}
+\textbf{算法：路由分布扰动型后处理水印}
 
 \begin{enumerate}
 \item \textbf{目标定义}：选择消息 $m$，通过哈希函数 $H_K(m)$ 生成目标激活模式 $\Sigma_m$。
 
-\item \textbf{损失函数设计}：定义复合损失函数 $\mathcal{L}_{\text{total}}$ 来微调 $\theta_{\text{clean}}$：
-$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}}(x) + \lambda_{\text{wm}} \cdot \mathcal{L}_{\text{wm}}(x) + \lambda_{\text{con}} \cdot \mathcal{L}_{\text{con}}(x, x')$$
-
-其中：
-\begin{itemize}
-\item $\mathcal{L}_{\text{task}}$：原始模型任务损失（如交叉熵），确保保持在 $D_{\text{perf}} \leq \epsilon_1$ 的约束内
-\item $\lambda_{\text{wm}}$：水印强度超参数，直接控制 $R$ 和 $D_{\text{perf}}$ 之间的权衡
-\item $\mathcal{L}_{\text{wm}}$：水印损失，用于实现 $\max p(\Sigma_m)$ 的目标
-\item $\lambda_{\text{con}}$：语义一致性强度超参数，控制 $\mathcal{R}_{\text{input}}$ 和 $\Delta_{\text{perf}}$ 之间的权衡
-\item $\mathcal{L}_{\text{con}}$：语义一致性约束，定义为 $\mathcal{L}_{\text{con}}(x, x') = \text{Dist}(\mathcal{S}(x), \mathcal{S}(x'))$，其中 $x'$ 是 $x$ 的语义等价释义，$\text{Dist}$ 是路由状态之间的距离度量（如 KL 散度或总变分距离）
-\end{itemize}
-
-\item \textbf{水印损失 $\mathcal{L}_{\text{wm}}$ 的设计}：对于一个输入 $x$，路由器产生 $n$ 个 logits：$\mathbf{l} = [l_1, \ldots, l_n]$。我们的目标是使目标模式 $\Sigma_m$ 中的专家成为 Top-$k$。采用\textbf{基于间隔（Margin-based）的损失}：
-
+\item \textbf{扰动计算}：对于输入 $x$，获取原始路由器的 logits 输出 $\mathbf{l} = [l_1, \ldots, l_n]$。扰动模块 $\mathcal{P}$ 计算最小扰动 $\delta_l$，使得：
 \begin{itemize}
 \item 找到 $\Sigma_m$ 中的最低分：$l_{\min\_\text{target}} = \min_{i \in \Sigma_m} l_i$
 \item 找到\textbf{非} $\Sigma_m$ 中的最高分：$l_{\max\_\text{other}} = \max_{i \notin \Sigma_m} l_i$
-\item \textbf{损失函数}：$\mathcal{L}_{\text{wm}} = \text{ReLU}(l_{\max\_\text{other}} - l_{\min\_\text{target}} + \text{margin})$
+\item 计算扰动：$\delta_l$ 使得 $l'_{\min\_\text{target}} > l'_{\max\_\text{other}} + \text{margin}$，其中 $l'_i = l_i + \delta_{l,i}$
+\item 最小化扰动幅度：$\min \|\delta_l\|$，以减小对任务性能的影响
 \end{itemize}
 
-该损失的含义是："要求目标专家（$\Sigma_m$ 中）的最低分，必须比所有其他专家的最高分还要高出一个 $\text{margin}$。如果这个条件满足，损失为0；否则，就施加一个惩罚。"
+\item \textbf{稀疏性适配}：扰动 $\mathcal{P}$ 必须在 top-$k$ 约束下进行。目标是将 $\Sigma_m$ 中的 $k$ 个专家提升到 top-$k$，并将原始 top-$k$ 中不在 $\Sigma_m$ 的专家"踢出" top-$k$。这天然适配稀疏路由机制，只操纵 top-$k$ 的\textbf{选择}，而不改变 $k$ 本身。
 
-\item \textbf{执行编码}：使用 $\mathcal{L}_{\text{total}}$ 对 $\theta_{\text{clean}}$（或仅仅是路由器参数）进行微调几个（甚至几十个）epoch。
-
-这个过程\textbf{自动}找到了一个"折衷"的 $\Delta\theta$：
+\item \textbf{触发器设计}：扰动模块 $\mathcal{P}$ 需要决定何时激活。可能的策略包括：
 \begin{itemize}
-\item 它只在那些\textbf{不会}严重损害 $\mathcal{L}_{\text{task}}$ 的输入 $x$ 上"悄悄地"推高 $\Sigma_m$ 的概率
-\item 它在"最容易"被操纵的输入上嵌入水印，而不是在所有输入上强行嵌入
-\item $\lambda_{\text{wm}}$ 的大小直接控制了 $R$ 和 $D_{\text{perf}}$ 之间的权衡
-\item $\lambda_{\text{con}}$ 的大小直接控制了 $\mathcal{R}_{\text{input}}$ 和 $\Delta_{\text{perf}}$ 以及 $C_{\text{achievable}}$ 之间的权衡
-\item 通过 $\mathcal{L}_{\text{con}}$，模型被迫学习语义层面的特征，而非仅仅依赖表层token关联，从而提高了对释义攻击的鲁棒性
+\item \textbf{全量激活}：对所有输入 $x$ 都施加扰动
+\item \textbf{条件激活}：基于输入特征（如嵌入相似度、句法结构等）决定是否激活
+\item \textbf{采样激活}：以一定概率 $p_{\text{trigger}}$ 激活，平衡隐蔽性和可检测性
 \end{itemize}
+
+\item \textbf{高效扰动计算}：为降低计算开销，可以采用以下优化：
+\begin{itemize}
+\item \textbf{闭式解}：当 margin 较小时，可以给出 $\delta_l$ 的闭式表达式
+\item \textbf{近似算法}：使用贪心或迭代方法快速计算近似最优扰动
+\item \textbf{缓存机制}：对于相似输入，复用已计算的扰动
+\end{itemize}
+
 \end{enumerate}
+
+\subsection{其他实现方案}
+
+\textbf{方案B：专家输出后处理型}：在专家输出 $E_i(x)$ 上注入签名。这偏离了依赖 $I_{\text{pattern}}$ 的核心假设，利用了权重量化 $I_{\text{weight}}$ 维度的思想。挑战在于连续值对噪声和语义变化的稳定性较差，检测器需要更复杂的设计。
+
+\textbf{方案C：最终输出后处理型}：在最终 $MoE_l(x)$ 上注入签名。同样面临连续值稳定性的挑战。
+
+\textbf{推荐方案}：方案A（路由分布扰动型）是最稳定的实现，因为它直接操作激活模式 $\Sigma$，这是最稳定的信息维度。
 
 \subsection{与理论框架的连接}
 
 该算法完美地连接回了形式化框架：
 
 \begin{itemize}
-\item \textbf{编码器 $\mathcal{E}$}：不再是简单的加法 $\tilde{\mathbf{w}} = \mathbf{w} + \delta \mathbf{b}_{\text{target}}$，而是一个\textbf{优化过程}（即上述的微调算法）
+\item \textbf{编码器 $\mathcal{E}$}：从离线的、基于优化的微调过程转变为\textbf{在线的、基于算法的推理时扰动模块 $\mathcal{P}$}
 
-\item \textbf{可实现容量 $C_{\text{achievable}}$}：容量 $R$ 不再是理论上的 $\log_2 \binom{n}{k}$，而是由 $\lambda_{\text{wm}}$ 控制的、在 $D_{\text{perf}}$ 和 $D_{\text{detect}}$ 约束下的\textbf{实际}互信息 $I(m; \mathbf{f})$
+\item \textbf{可实现容量 $C_{\text{achievable}}$}：容量 $R$ 不再是理论上的 $\log_2 \binom{n}{k}$，而是由扰动模块 $\mathcal{P}$ 在 $D_{\text{perf}}$ 和 $D_{\text{detect}}$ 约束下实际能稳定注入的互信息 $I(m; \mathbf{f})$
 
-\item \textbf{率失真 $R(D)$}：可以通过\textbf{扫描 $\lambda_{\text{wm}}$} 来凭经验绘制出 $R(D_{\text{perf}}, D_{\text{detect}})$ 曲线，完美体现了"信息-性能-隐蔽性权衡"的思想
+\item \textbf{率失真 $R(D)$}：可以通过\textbf{调整扰动策略}（如 margin、触发概率等）来凭经验绘制出 $R(D_{\text{perf}}, D_{\text{detect}})$ 曲线，完美体现了"信息-性能-隐蔽性权衡"的思想
 \end{itemize}
 
 %-------------------------------------------------------------------------------
@@ -335,31 +382,64 @@ $$\mathcal{S}(x) = (\mathbf{r}(x), \Sigma(x), \pi(x)) \neq \mathcal{S}(x') = (\m
 \item \textbf{统计分布的稳定性}：在测试集上，即使输入经过释义，激活模式的统计分布 $p(\Sigma|\theta_{\text{wm}})$ 应该保持相对稳定，使得验证者能够检测到水印信号。
 \end{enumerate}
 
-\subsection{应对策略：语义一致性约束}
+\subsection{语义等价类与鲁棒容量}
 
-为了应对输入空间的释义攻击，编码器 $\mathcal{E}$ 需要引入\textbf{语义一致性约束（Semantic Consistency Constraint）}：
+为了形式化语义层面的鲁棒性，我们定义\textbf{语义等价类（Semantic Equivalence Classes）}。设输入空间上的等价关系 $x \sim x'$ 表示 $x$ 和 $x'$ 语义一致，即 $\text{Semantic}(x) \approx \text{Semantic}(x')$。令 $\mathcal{C} = \{\mathcal{C}_1, \mathcal{C}_2, \ldots, \mathcal{C}_M\}$ 为语义等价类的集合，其中每个类 $\mathcal{C}_j$ 包含语义等价的输入。
 
-$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}}(x) + \lambda_{\text{wm}} \cdot \mathcal{L}_{\text{wm}}(x) + \lambda_{\text{con}} \cdot \text{Dist}(\mathcal{S}(x), \mathcal{S}(x'))$$
+\textbf{鲁棒容量（Robust Capacity）}定义为：对于每个语义等价类 $\mathcal{C}_j$ 和目标激活模式 $\Sigma_m$，若满足：
+$$\Pr_{x \in \mathcal{C}_j}[\Sigma(x) = \Sigma_m] \geq 1 - \epsilon$$
 
-其中 $x'$ 是 $x$ 的一个释义（或通过数据增强、对抗性输入产生），$\text{Dist}$ 是一个距离度量，用于惩罚 $x$ 和 $x'$ 之间路由行为的\textbf{不一致性}。
+其中 $\epsilon$ 为允许的误差阈值，则模式 $\Sigma_m$ 在该类上\textbf{鲁棒}。有效码本大小由满足类内一致性的模式数决定，即：
+$$C_{\text{robust}} = \log_2 |\{\Sigma_m : \forall \mathcal{C}_j, \Pr_{x \in \mathcal{C}_j}[\Sigma(x) = \Sigma_m] \geq 1 - \epsilon\}|$$
 
-通过这种方式，我们\textbf{强迫} $\Delta\theta$ 去学习一个\textbf{语义鲁棒}的路由偏好。这使得水印嵌入的成本更高（$D_{\text{perf}}$ 可能更大），但 $\mathcal{R}_{\text{input}}$ 也相应增强了。
+该定义将组合码容量 $I_{\text{pattern}}$ 经由"类内不变性约束"缩减为有效码本大小。在释义攻击下，若水印仅对特定触发词过拟合，则 $C_{\text{robust}}$ 可能骤降为 0。
 
-\textbf{权衡关系}：
+\textbf{常重码（Constant-Weight Codes）与纠错思想}：在 $\binom{n}{k}$ 的组合空间中选取码本 $\mathcal{M}$ 使得模式间\textbf{汉明距离}大于 $d_{\min}$。结合 top-$k$ 抖动/温度扰动，将\textbf{解码半径}映射为"允许若干位（专家选择）翻转"。这给出\textbf{纠错余量}与鲁棒容量的显式下界。对于码本 $\mathcal{M}$，若任意两个码字 $\Sigma_i, \Sigma_j \in \mathcal{M}$ 满足 $d_H(\Sigma_i, \Sigma_j) \geq d_{\min}$，则码本可纠正最多 $\lfloor (d_{\min}-1)/2 \rfloor$ 位的错误。
+
+\subsection{应对策略：语义感知的扰动模块设计}
+
+在\textbf{后处理框架}下，我们\textbf{无法}使用训练时的语义一致性约束 $\mathcal{L}_{\text{con}}$，因为我们不进行模型训练。语义鲁棒性 $\mathcal{R}_{\text{input}}$ 的实现\textbf{完全转移到了扰动模块 $\mathcal{P}$ 的设计上}。
+
+\textbf{核心要求}：扰动模块 $\mathcal{P}$ 必须具备"语义感知"能力，即对于语义等价类 $\mathcal{C}_j$ 中的不同输入 $x$ 和 $x'$，$\mathcal{P}$ 必须能\textbf{识别}它们的语义相似性，并施加\textbf{一致}的扰动，使它们都触发目标模式 $\Sigma_m$。
+
+\textbf{实现策略}：
+
+\begin{enumerate}
+\item \textbf{编码端（扰动模块 $\mathcal{P}$）}：
+\begin{itemize}
+\item \textbf{语义等价类识别}：$\mathcal{P}$ 需要能够识别语义等价类 $\mathcal{C}_j$。可以通过以下方式实现：
+\begin{itemize}
+\item \textbf{嵌入相似度}：计算输入 $x$ 的嵌入向量，与预定义的语义簇中心进行比较
+\item \textbf{句法结构分析}：使用句法解析器识别语义等价的句法结构
+\item \textbf{启发式规则}：基于关键词、实体等设计规则识别语义等价类
+\end{itemize}
+\item \textbf{一致扰动}：对于同一语义等价类 $\mathcal{C}_j$ 中的输入，$\mathcal{P}$ 施加相同的扰动策略，确保它们都触发目标模式 $\Sigma_m$
+\end{itemize}
+
+\item \textbf{验证端（验证器 $\mathcal{V}$）}：
+\begin{itemize}
+\item \textbf{联合检测策略}：验证器 $\mathcal{V}$ 在测试时，主动使用释义 $x'$ 来测试。一个鲁棒的水印必须在 $x$ 和 $x'$ 上都触发 $\Sigma_m$，从而实现鲁棒容量 $C_{\text{robust}}$
+\item \textbf{语义等价类测试}：对于测试样本 $x$，生成其语义等价释义 $x'$，验证两者是否都触发目标模式 $\Sigma_m$
+\end{itemize}
+\end{enumerate}
+
+通过这种方式，我们\textbf{将实现 $\mathcal{R}_{\text{input}}$ 的负担从训练损失 $\mathcal{L}_{\text{con}}$ 转移到了扰动模块 $\mathcal{P}$ 的算法设计上}。这使得水印系统更加灵活，但要求 $\mathcal{P}$ 具备更强的语义理解能力。
+
+\textbf{权衡关系（后处理框架）}：
 
 \begin{enumerate}
 \item \textbf{$\mathcal{R}_{\text{input}}$ vs $\Delta_{\text{perf}}$（语义鲁棒性 vs 性能）}：
 \begin{itemize}
-\item 为了提高 $\mathcal{R}_{\text{input}}$，我们必须提高 $\lambda_{\text{con}}$。
-\item 但这迫使模型在语义相似的输入上（$x$ 和 $x'$）给出\textbf{一致}的路由行为。
-\item 这是一个\textbf{非常强}的约束，它会干扰模型为 $\mathcal{L}_{\text{task}}$ 所做的正常优化，从而\textbf{不可避免}地导致\textbf{更大的性能下降 $\Delta_{\text{perf}}$}。
+\item 为了提高 $\mathcal{R}_{\text{input}}$，扰动模块 $\mathcal{P}$ 必须在更大的语义等价类上施加一致的扰动。
+\item 这要求 $\mathcal{P}$ 对更多输入施加扰动，从而\textbf{不可避免}地导致\textbf{更大的性能下降 $\Delta_{\text{perf}}$}。
+\item 性能失真来源于扰动 $\mathcal{P}$ 对任务损失 $\mathcal{L}_{\text{task}}$ 的瞬时干扰。
 \end{itemize}
 
 \item \textbf{$\mathcal{R}_{\text{input}}$ vs $C_{\text{achievable}}$（语义鲁棒性 vs 容量）}：
 \begin{itemize}
-\item $\mathcal{L}_{\text{con}}$ 约束越多，模型能够"藏匿"水印的"自由空间"就越少。
-\item 必须在整个语义簇上嵌入水印，而非仅针对特定触发词。
+\item 扰动模块 $\mathcal{P}$ 的语义感知能力越强，需要在更大的语义簇上嵌入水印，而非仅针对特定触发词。
 \item 这使得嵌入单个比特（例如 $\Sigma_m$）的难度\textbf{急剧增加}，因此\textbf{可实现容量 $C_{\text{achievable}}$ 会显著下降}。
+\item 鲁棒容量 $C_{\text{robust}}$ 由满足类内一致性的模式数决定，通常小于 $C_{\text{achievable}}$。
 \end{itemize}
 \end{enumerate}
 
@@ -377,50 +457,61 @@ $$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}}(x) + \lambda_{\text{wm}
 \item $H_1$：模型被正确的水印化，参数 $\theta_1 \in \Theta_1$ 未知
 \end{itemize}
 
-由于参数未知，$H_0$ 和 $H_1$ 均为复合假设。给定测试集 $\mathcal{T} = \{x_1, \ldots, x_N\}$，提取特征向量：
-$$\mathbf{f} = [\mathcal{F}(x_1), \ldots, \mathcal{F}(x_N)]$$
+由于参数未知，$H_0$ 和 $H_1$ 均为复合假设。给定测试集 $\mathcal{T} = \{x_1, \ldots, x_N\}$，我们\textbf{只提取激活模式 $\Sigma$}作为观测特征（排列码和权重量化在语义变化下不稳定）。
 
-\textbf{特征选择}：排列码 $I_{\text{order}}$ 和权重量化 $I_{\text{weight}}$ 在语义变化下不稳定。因此，验证者 $\mathcal{V}$ 应该\textbf{只依赖于激活模式 $\Sigma$}。特征提取函数 $\mathcal{F}$ 定义为：
-$$\mathcal{F}(x) = \Sigma(x)$$
+\textbf{观测向量与概率模型显式化}：对所有 $\binom{n}{k}$ 种可能的激活模式进行计数，得到计数向量 $\mathbf{c} \in \mathbb{N}^{\binom{n}{k}}$，满足 $\sum_{i=1}^{\binom{n}{k}} c_i = N$。我们假设观测向量 $\mathbf{c}$ 服从\textbf{多项分布（Multinomial）}：
+$$\mathbf{c} \sim \text{Multinomial}(N, \mathbf{p})$$
 
-即只提取激活的专家集合。特征向量为：
-$$\mathbf{f} = (\Sigma_1, \ldots, \Sigma_N)$$
+其中 $\mathbf{p} = [p_1, p_2, \ldots, p_{\binom{n}{k}}]$ 为激活模式的概率分布向量，满足 $\sum_{i=1}^{\binom{n}{k}} p_i = 1$。
 
-\textbf{信道输出}：验证者观测到的信道输出 $Y$ 是在 $N$ 个样本上观测到的\textbf{激活模式 $\Sigma$ 的经验分布（或计数向量）}。对于 $n$ 个专家、$k$ 个激活的配置，共有 $\binom{n}{k}$ 种可能的激活模式，因此 $\mathbf{f}$ 可以表示为长度为 $\binom{n}{k}$ 的计数向量，其中每个元素表示对应激活模式在测试集上的出现次数。
+在 $H_0$ 下，$\mathbf{p} = \mathbf{p}_0$ 表示干净模型 $\theta_{\text{clean}}$ 的路由分布；在 $H_1$ 下，$\mathbf{p} = \mathbf{p}_1$ 表示在干净模型 $\theta_{\text{clean}}$ 上应用扰动模块 $\mathcal{P}$（后处理）后的激活模式分布。多项分布的似然函数为：
+$$p(\mathbf{c}|\mathbf{p}) = \frac{N!}{\prod_{i=1}^{\binom{n}{k}} c_i!} \prod_{i=1}^{\binom{n}{k}} p_i^{c_i}$$
 
 \subsection{广义似然比检验（GLRT）与序贯概率比检验（SPRT）}
 
-由于 $H_0$ 和 $H_1$ 为复合假设，采用\textbf{广义似然比检验（GLRT）}以消去未知参数：
-$$\Lambda_{\text{GLRT}}(\mathbf{f}) = \frac{\max_{\theta_1 \in \Theta_1} p(\mathbf{f}|\theta_1)}{\max_{\theta_0 \in \Theta_0} p(\mathbf{f}|\theta_0)} \gtrless \tau$$
+由于 $H_0$ 和 $H_1$ 为复合假设，采用\textbf{广义似然比检验（GLRT）}以消去未知参数。对于多项分布模型，GLRT 的对数似然比为：
+$$\log \Lambda(\mathbf{c}) = \sum_{i=1}^{\binom{n}{k}} c_i \log \frac{\hat{p}_{1,i}}{\hat{p}_{0,i}}$$
 
-或采用\textbf{序贯概率比检验（SPRT）}以降低测试样本开销：
-$$\Lambda_{\text{SPRT}}(\mathbf{f}_t) = \prod_{i=1}^t \frac{p(\mathbf{f}_i|H_1)}{p(\mathbf{f}_i|H_0)} \gtrless \tau$$
+其中 $\hat{\mathbf{p}}_j = \arg\max_{\mathbf{p} \in \Theta_j} \Pr(\mathbf{c}|\mathbf{p})$ 为在假设 $H_j$ 下的最大似然估计（MLE）。当 $\Theta_0$ 不给定先验时，$\hat{\mathbf{p}}_0 = \mathbf{c}/N$（经验分布）。$\hat{\mathbf{p}}_1$ 由扰动模块 $\mathcal{P}$ 诱导的目标分布（后处理模型 $\theta_{\text{clean}} + \mathcal{P}$ 的激活模式分布）及其正则化估计（如 Dirichlet 先验）获得。决策规则为：
+$$\log \Lambda(\mathbf{c}) \gtrless \tau$$
 
-其中 $t$ 为当前样本数，SPRT 可在达到决策阈值时提前终止。
+其中阈值 $\tau$ 根据假阳性率 $\alpha$ 的要求选取。
+
+\textbf{序贯概率比检验（SPRT）}：在线积累单样本 $\Sigma(x_t)$ 的似然比：
+$$\Lambda_{\text{SPRT}}(\mathbf{c}_t) = \prod_{i=1}^t \frac{p(\Sigma(x_i)|H_1)}{p(\Sigma(x_i)|H_0)} = \prod_{i=1}^t \frac{p_{1,\sigma_i}}{p_{0,\sigma_i}}$$
+
+其中 $\sigma_i$ 表示第 $i$ 个样本的激活模式索引。SPRT 在达到决策阈值时提前终止，报告\textbf{期望样本数（ASN）}与功效。
 
 \textbf{检测功率（功效）}定义为：
-$$\beta = \inf_{\theta_1 \in \Theta_1} P(\Lambda > \tau | H_1, \theta_1)$$
+$$\beta = \inf_{\mathbf{p}_1 \in \Theta_1} P(\log \Lambda(\mathbf{c}) > \tau | H_1, \mathbf{p}_1)$$
 
 \textbf{假阳性率}（False Positive Rate）：
-$$\alpha = \sup_{\theta_0 \in \Theta_0} P(\Lambda > \tau | H_0, \theta_0)$$
+$$\alpha = \sup_{\mathbf{p}_0 \in \Theta_0} P(\log \Lambda(\mathbf{c}) > \tau | H_0, \mathbf{p}_0)$$
+
+\textbf{样本复杂度与阈值}：基于\textbf{Sanov 定理}或\textbf{Chernoff 界}，当所有分量 $p_{0,i}, p_{1,i}$ 非零且两分布分离时，错判率指数受\textbf{Bhattacharyya 距离}控制。对于多项分布族，Bhattacharyya 距离为：
+$$D_B = -\ln \sum_{i=1}^{\binom{n}{k}} \sqrt{p_{0,i} p_{1,i}}$$
+
+据此可给出样本数 $N$ 与错误概率 $(\alpha, \beta)$ 的关系，以及 ROC-AUC 的保守下界。
 
 \subsection{ROC曲线与AUC下界（基于错判率上界）}
 
 检测质量由接收者操作特征（ROC）曲线量化：
 $$\text{AUC} = \int_0^1 \text{TPR}(\text{FPR}) \, d(\text{FPR})$$
 
-对于信息论上界，我们采用\textbf{Chernoff/Bhattacharyya 上界}先给出\textbf{错判率}或\textbf{Bayes 风险}的指数型上界，再间接推导对 AUC 的保守下界。
+对于多项分布族，我们基于\textbf{Bhattacharyya 距离}给出错判率上界，进而推导 AUC 的保守下界。
 
-\textbf{Bhattacharyya 距离}：
-$$D_B = -\ln \int \sqrt{p(\mathbf{f}|H_0) p(\mathbf{f}|H_1)} \, d\mathbf{f}$$
+\textbf{Bhattacharyya 距离}（多项分布族）：
+$$D_B = -\ln \sum_{i=1}^{\binom{n}{k}} \sqrt{p_{0,i} p_{1,i}}$$
 
-对于高斯分布族，错判率上界为：
-$$P_{\text{error}} \leq \exp(-D_B)$$
+当所有分量 $p_{0,i}, p_{1,i}$ 非零且两分布分离时，错判率上界为：
+$$P_{\text{error}} \lesssim e^{-N \cdot D_B}$$
 
-进而可推导 AUC 的保守下界（需注明适用分布族，如高斯族）：
-$$\text{AUC} \geq 1 - \exp(-D_B) - \alpha$$
+其中 $N$ 为样本数。该上界基于多项分布族的 Chernoff 界，适用于分布充分分离的情况。
 
-其中 $\alpha$ 为假阳性率上界。
+\textbf{AUC 保守下界}：在多项分布族下，基于错判率上界可构造 ROC 的保守下界。当 $D_B > 0$ 且样本数 $N$ 足够大时：
+$$\text{AUC} \geq 1 - e^{-N \cdot D_B} - \alpha$$
+
+其中 $\alpha$ 为假阳性率上界。该下界明确适用于多项分布模型，并需满足分布分量非零且充分分离的条件。近似误差与分布分离程度和样本数相关。
 
 %-------------------------------------------------------------------------------
 \section{综合性能指标}
@@ -431,8 +522,8 @@ $$\text{AUC} \geq 1 - \exp(-D_B) - \alpha$$
 \textbf{质量定义}：聚焦于模型输入空间的攻击，我们将鲁棒性拆分为两个\textbf{独立}且\textbf{相互竞争}的指标：
 
 \begin{enumerate}
-\item \textbf{$\mathcal{R}_{\text{param}}$（参数鲁棒性）}：对抗微调、蒸馏等参数空间攻击。
-\item \textbf{$\mathcal{R}_{\text{input}}$（语义鲁棒性）}：对抗释义、同义词替换等输入空间规避攻击。
+\item \textbf{$\mathcal{R}_{\text{param}}$（参数鲁棒性）}：在\textbf{后处理框架}下，这是一个新的挑战。如果模型 $\theta_{\text{clean}}$ 被第三方微调了（例如 $\theta'_{\text{clean}}$），扰动模块 $\mathcal{P}$（它是为 $\theta_{\text{clean}}$ 设计的）是否仍然有效？$\mathcal{P}$ 需要对 $\theta$ 的小幅变化具有鲁棒性。这要求扰动模块 $\mathcal{P}$ 能够适应模型参数的变化，或设计对参数变化不敏感的扰动策略。
+\item \textbf{$\mathcal{R}_{\text{input}}$（语义鲁棒性）}：对抗释义、同义词替换等输入空间规避攻击。在后处理框架下，语义鲁棒性完全由扰动模块 $\mathcal{P}$ 的语义感知能力决定。
 \end{enumerate}
 
 综合定义水印系统的质量为\textbf{四维指标}：
@@ -453,17 +544,17 @@ $$\text{s.t.} \quad \Delta_{\text{perf}} \leq \epsilon, \quad \alpha \leq \alpha
 
 \textbf{帕累托前沿}定义为非被支配的解集合，即不存在其他解在所有目标上都不劣于当前解且至少在一个目标上更优。
 
-\textbf{关键权衡关系}：
+\textbf{关键权衡关系（后处理框架）}：
 
 \begin{enumerate}
-\item \textbf{$\mathcal{R}_{\text{input}}$ vs $\Delta_{\text{perf}}$（语义鲁棒性 vs 性能）}：为了提高 $\mathcal{R}_{\text{input}}$，必须提高 $\lambda_{\text{con}}$，但这会干扰模型为 $\mathcal{L}_{\text{task}}$ 所做的正常优化，导致更大的性能下降 $\Delta_{\text{perf}}$。
+\item \textbf{$\mathcal{R}_{\text{input}}$ vs $\Delta_{\text{perf}}$（语义鲁棒性 vs 性能）}：为了提高 $\mathcal{R}_{\text{input}}$，扰动模块 $\mathcal{P}$ 必须在更大的语义等价类上施加一致的扰动，这要求 $\mathcal{P}$ 对更多输入施加扰动，从而不可避免地导致更大的性能下降 $\Delta_{\text{perf}}$。性能失真来源于扰动 $\mathcal{P}$ 对任务损失 $\mathcal{L}_{\text{task}}$ 的瞬时干扰。
 
-\item \textbf{$\mathcal{R}_{\text{input}}$ vs $C_{\text{achievable}}$（语义鲁棒性 vs 容量）}：$\mathcal{L}_{\text{con}}$ 约束越多，模型能够"藏匿"水印的"自由空间"就越少，不能再简单地将水印"过拟合"到特定触发词上，必须在整个语义簇上嵌入水印，使得嵌入单个比特的难度急剧增加，因此可实现容量 $C_{\text{achievable}}$ 会显著下降。
+\item \textbf{$\mathcal{R}_{\text{input}}$ vs $C_{\text{achievable}}$（语义鲁棒性 vs 容量）}：扰动模块 $\mathcal{P}$ 的语义感知能力越强，需要在更大的语义簇上嵌入水印，而非仅针对特定触发词，这使得嵌入单个比特的难度急剧增加，因此可实现容量 $C_{\text{achievable}}$ 会显著下降。鲁棒容量 $C_{\text{robust}}$ 由满足类内一致性的模式数决定，通常小于 $C_{\text{achievable}}$。
 \end{enumerate}
 
 \textbf{权重设定}：质量函数的加权形式 $Q_{\text{normalized}} = \alpha C_n + \beta R_{\text{param},n} + \gamma R_{\text{input},n} + \delta A_n$（其中 $\alpha + \beta + \gamma + \delta = 1$）仅用于\textbf{政策选择}（根据具体应用需求选择折中点），而非理论结论。权重来源与任务依赖需明确：不同数据集/任务（如生成式 vs 分类式 MoE）可能需要不同的权重配置。建议以\textbf{Pareto 前沿}为主图呈现不加权的解集，再由应用需求选择折中点。
 
-\textbf{与开放问题的连接}：该框架回应了如何构造"稳健验证器"以处理"域漂移"的开放问题。"文本释义"正是"对抗性域漂移"的一种形式。通过引入 $\mathcal{L}_{\text{con}}$ 作为实现 $\mathcal{R}_{\text{input}}$ 的机制，我们提供了一个具体的工程路径来探索四维帕累托前沿。
+\textbf{与开放问题的连接}：该框架回应了如何构造"稳健验证器"以处理"域漂移"的开放问题。"文本释义"正是"对抗性域漂移"的一种形式。在后处理框架下，通过语义感知的扰动模块 $\mathcal{P}$ 作为实现 $\mathcal{R}_{\text{input}}$ 的机制，我们提供了一个具体的工程路径来探索四维帕累托前沿。
 
 %-------------------------------------------------------------------------------
 \section{数学推导示例}
@@ -478,24 +569,29 @@ $$I_{\text{pattern}} = \log_2 \binom{8}{2} = \log_2 28 \approx 4.8 \text{ bits}$
 
 \textbf{消息映射}：通过带密钥 $K$ 的哈希函数 $H_K(m)$ 将消息 $m$（例如 "U-C-Berkeley"）映射到目标激活模式 $\Sigma_m$（例如，$\Sigma_m = \{\text{专家 3, 专家 7}\}$）。
 
-\textbf{编码方案}：使用基于约束优化的微调过程，而非简单的偏置向量加法。定义复合损失函数：
-$$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{task}} + \lambda_{\text{wm}} \cdot \mathcal{L}_{\text{wm}}$$
+\textbf{编码方案（后处理框架）}：使用推理时扰动模块 $\mathcal{P}$，对路由器的 logits 输出施加扰动。对于输入 $x$，获取原始 logits $\mathbf{l} = [l_1, \ldots, l_8]$，计算最小扰动 $\delta_l$ 使得：
+$$\min_{i \in \Sigma_m} (l_i + \delta_{l,i}) > \max_{i \notin \Sigma_m} (l_i + \delta_{l,i}) + \text{margin}$$
 
-其中水印损失 $\mathcal{L}_{\text{wm}}$ 采用基于间隔的损失：
-$$\mathcal{L}_{\text{wm}} = \text{ReLU}\left(\max_{i \notin \Sigma_m} l_i - \min_{i \in \Sigma_m} l_i + \text{margin}\right)$$
+扰动模块 $\mathcal{P}$ 的目标是使目标专家（$\Sigma_m$ 中）的最低 logit 必须比所有其他专家的最高 logit 还要高出一个 $\text{margin}$，从而确保 $\Sigma_m$ 成为 top-$k$ 激活模式。
 
-该损失要求目标专家（$\Sigma_m$ 中）的最低 logit 必须比所有其他专家的最高 logit 还要高出一个 $\text{margin}$。
+\textbf{性能约束（后处理框架）}：在数据分布 $p(x)$ 上的性能失真和统计失真（仅基于激活模式 $\Sigma$）：
+$$D_{\text{perf}} = \text{Acc}_{\text{clean}} - \text{Acc}_{\text{clean} + \mathcal{P}} \leq \epsilon_1$$
+$$D_{\text{detect}} = \mathbb{E}_{x \sim p(x)} \left[D_{\text{KL}}\left(p(\Sigma(x)|\theta_{\text{clean}}) || p(\Sigma(x)|\theta_{\text{clean}}, \mathcal{P})\right)\right] \leq \epsilon_2$$
 
-\textbf{性能约束}：在数据分布 $p(x)$ 上的性能失真和统计失真
-$$D_{\text{perf}} = \text{Acc}_{\text{clean}} - \text{Acc}_{\text{watermarked}} \leq \epsilon_1$$
-$$D_{\text{detect}} = \mathbb{E}_{x \sim p(x)} \left[D_{\text{KL}}\left(p(\mathcal{S}(x)|\theta_{\text{clean}}) || p(\mathcal{S}(x)|\theta_{\text{wm}})\right)\right] \leq \epsilon_2$$
+其中 $\text{Acc}_{\text{clean} + \mathcal{P}}$ 表示在干净模型上应用扰动模块 $\mathcal{P}$ 后的准确率，$p(\Sigma|\theta_{\text{clean}}, \mathcal{P})$ 表示后处理模型的激活模式分布。
 
-\textbf{可实现容量}：通过扫描 $\lambda_{\text{wm}}$，可以凭经验测量实际互信息 $I(m; \mathbf{f})$，其中 $\mathbf{f}$ 是测试集上激活模式的经验分布。实际容量 $C_{\text{achievable}}$ 通常小于理论容量 $I_{\text{pattern}}$，因为需要在性能失真和统计失真之间进行权衡。
+\textbf{可实现容量}：通过调整扰动策略（如 margin、触发概率等），可以凭经验测量实际互信息 $I(m; \mathbf{f})$，其中 $\mathbf{f}$ 是测试集上激活模式的经验分布（计数向量 $\mathbf{c}$）。实际容量 $C_{\text{achievable}}$ 通常小于理论容量 $I_{\text{pattern}}$，因为需要在性能失真和统计失真之间进行权衡。
 
-\textbf{检测能力}：基于 Pinsker 不等式，若水印模型和干净模型的路由分布满足 $D_{\text{KL}}(p_{\text{wm}} || p_{\text{clean}}) \geq \delta$，则验证成功率下界为：
-$$P_{\text{detect}} \geq 1 - \exp\left(-\frac{\delta}{2}\right) - \alpha$$
+\textbf{检测能力（多项分布模型，后处理框架）}：对于观测计数向量 $\mathbf{c} \sim \text{Multinomial}(N, \mathbf{p})$，在 $H_0$ 下 $\mathbf{p} = \mathbf{p}_0$（干净模型 $\theta_{\text{clean}}$），在 $H_1$ 下 $\mathbf{p} = \mathbf{p}_1$（后处理模型 $\theta_{\text{clean}} + \mathcal{P}$）。基于 Bhattacharyya 距离：
+$$D_B = -\ln \sum_{i=1}^{28} \sqrt{p_{0,i} p_{1,i}}$$
 
-其中 $\alpha$ 为假阳性率上界。在语义层面释义攻击下，需要考虑语义等价输入对分布的影响。
+当分布充分分离时，错判率上界为 $P_{\text{error}} \lesssim e^{-N \cdot D_B}$。基于 Pinsker 不等式，总变差距离满足：
+$$\text{TV}(\mathbf{p}_0, \mathbf{p}_1) \leq \sqrt{\frac{1}{2} D_{\text{KL}}(\mathbf{p}_1 || \mathbf{p}_0)}$$
+
+若 $D_{\text{KL}}(\mathbf{p}_1 || \mathbf{p}_0) \geq \delta$，则验证成功率下界为：
+$$P_{\text{detect}} \geq 1 - \sqrt{\frac{\delta}{2}} - \alpha$$
+
+其中 $\alpha$ 为假阳性率上界。在语义层面释义攻击下，需要考虑语义等价输入对分布的影响，此时应使用鲁棒容量 $C_{\text{robust}}$ 而非 $C_{\text{achievable}}$。
 
 %-------------------------------------------------------------------------------
 \section{开放的理论问题}
@@ -504,11 +600,12 @@ $$P_{\text{detect}} \geq 1 - \exp\left(-\frac{\delta}{2}\right) - \alpha$$
 尽管本文建立了 MoE 路由水印的信息论框架，但仍存在一些开放的理论问题：
 
 \begin{enumerate}
-\item \textbf{稀疏门控与单纯形容量的精确化}：在 top-$k$ 稀疏门控与概率单纯形约束下，路由水印的有效自由度与容量是多少？如何用类型法（method of types）为离散部分给出可靠编码区与错误指数？
+\item \textbf{稀疏门控与单纯形容量的精确化}：在 top-$k$ 稀疏门控与概率单纯形约束下，路由水印的有效自由度与容量是多少？如何用\textbf{类型法（Method of Types）}为离散部分给出可靠编码区与错误指数？
 \item \textbf{嵌入-性能的率失真闭环}：在给定性能降级门限下，能否得到显式的容量上/下界？如何将性能损失上界映射为对路由分布的散度球约束（KL 或 Rényi 散度）？
 \item \textbf{复合假设检验的稳健验证器}：如何构造稳健最优的验证器以处理语义层面的释义攻击？如何比较以 $\Sigma$、$\pi$、$\mathbf{r}_\Sigma$ 为特征的不同充分性与功效？
 \item \textbf{隐蔽性（Steganographic Security）与可检性下界}：路由分布的统计隐蔽性如何量化？如何定义对手的检测器族并给出最小可辨性下界？
-\item \textbf{语义层面的稳定性与泛化能力}：如何设计水印嵌入算法，使得激活模式对语义等价的输入保持稳定？如何量化语义变化对路由状态分布的影响？如何避免水印对触发器输入的过拟合，确保学习到语义概念关联而非表层token关联？
+\item \textbf{语义层面的稳定性与泛化能力}：在后处理框架下，如何设计语义感知的扰动模块 $\mathcal{P}$，使得激活模式对语义等价的输入保持稳定？如何量化语义变化对路由状态分布的影响？如何避免水印对触发器输入的过拟合，确保扰动模块能够识别语义等价类并施加一致的扰动？
+\item \textbf{参数鲁棒性 $\mathcal{R}_{\text{param}}$ 的实现机制}：在后处理框架下，如何设计扰动模块 $\mathcal{P}$ 使其对模型参数的小幅变化（如微调、蒸馏）具有鲁棒性？如何实现扰动模块的自适应机制，使其能够适应模型参数的变化？如何量化参数变化对扰动模块有效性的影响？
 \item \textbf{四维帕累托前沿的探索}：如何在更高维度的空间（$C_{\text{achievable}}$, $\mathcal{R}_{\text{param}}$, $\mathcal{R}_{\text{input}}$, $\text{AUC}$）中寻找最优权衡点？如何量化 $\mathcal{R}_{\text{input}}$ 与 $\Delta_{\text{perf}}$ 以及 $\mathcal{R}_{\text{input}}$ 与 $C_{\text{achievable}}$ 之间的权衡关系？
 \end{enumerate}
 
@@ -516,7 +613,7 @@ $$P_{\text{detect}} \geq 1 - \exp\left(-\frac{\delta}{2}\right) - \alpha$$
 \section{结论}
 %-------------------------------------------------------------------------------
 
-本文提出了 MoE 路由水印的信息论形式化框架，聚焦于模型输入空间的语义层面释义攻击，为路由水印的设计和评估提供了严格的理论基础。我们建立了基于参数扰动的信道模型，明确了编码器、信道和输出的定义。我们量化了激活模式（组合码）的编码容量，并揭示了其在输入空间攻击下的脆弱性：水印可能对触发器输入过拟合，只学习表层token关联而非语义关联，导致实际可实现鲁棒容量可能骤降为 0。我们建立了二维率失真框架，同时考虑性能失真 $D_{\text{perf}}$ 和统计失真 $D_{\text{detect}}$（隐蔽性），并提出了基于约束优化的编码器算法，引入语义一致性约束来对抗输入空间的释义攻击，通过带约束的微调过程实现水印嵌入。我们定义了语义鲁棒性 $\mathcal{R}_{\text{input}}$ 来量化水印对输入空间规避攻击的抵抗能力，并建立了四维帕累托前沿，揭示了 $\mathcal{R}_{\text{input}}$ 与 $\Delta_{\text{perf}}$ 以及 $\mathcal{R}_{\text{input}}$ 与 $C_{\text{achievable}}$ 之间的关键权衡关系。在验证过程中，我们构建了基于复合假设检验的框架（GLRT/SPRT），强调只使用激活模式特征进行验证，并基于错判率上界间接推导了检测质量的 AUC 下界。这些理论结果为 MoE 路由水印的实践应用提供了指导，并为未来的研究指明了方向，包括稀疏门控与单纯形容量的精确化、嵌入-性能-隐蔽性的率失真闭环、复合假设检验的稳健验证器、隐蔽性分析、语义层面的稳定性与泛化能力以及四维帕累托前沿的探索等开放问题。
+本文提出了 MoE 路由水印的信息论形式化框架，采用\textbf{后处理（Post-processing）}范式，聚焦于模型输入空间的语义层面释义攻击，为路由水印的设计和评估提供了严格的理论基础。我们建立了基于推理时扰动模块的信道模型，明确了编码器（扰动模块 $\mathcal{P}$）、信道和输出的定义，实现了非侵入性水印嵌入。我们量化了激活模式（组合码，Combination Code）的编码容量，并揭示了其在输入空间攻击下的脆弱性：水印可能对触发器输入过拟合，只学习表层token关联而非语义关联，导致实际可实现鲁棒容量可能骤降为 0。我们建立了二维率失真框架，同时考虑性能失真 $D_{\text{perf}}$（由推理时扰动造成的瞬时性能下降）和统计失真 $D_{\text{detect}}$（隐蔽性），并提出了路由分布扰动型后处理水印机制，通过语义感知的扰动模块设计来对抗输入空间的释义攻击，将语义鲁棒性的实现从训练损失转移到扰动模块的算法设计上。我们定义了语义等价类和鲁棒容量 $C_{\text{robust}}$，并定义了语义鲁棒性 $\mathcal{R}_{\text{input}}$ 来量化水印对输入空间规避攻击的抵抗能力，建立了四维帕累托前沿，揭示了 $\mathcal{R}_{\text{input}}$ 与 $\Delta_{\text{perf}}$ 以及 $\mathcal{R}_{\text{input}}$ 与 $C_{\text{achievable}}$ 之间的关键权衡关系。在验证过程中，我们构建了基于复合假设检验的框架（GLRT/SPRT），显式化观测向量为多项分布模型，强调只使用激活模式特征进行验证，并基于多项分布族的 Bhattacharyya 距离推导了检测质量的 AUC 下界。这些理论结果为 MoE 路由水印的实践应用提供了指导，并为未来的研究指明了方向，包括稀疏门控与单纯形容量的精确化、嵌入-性能-隐蔽性的率失真闭环、复合假设检验的稳健验证器、隐蔽性分析、语义层面的稳定性与泛化能力、参数鲁棒性 $\mathcal{R}_{\text{param}}$ 的实现机制以及四维帕累托前沿的探索等开放问题。
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \end{document}
