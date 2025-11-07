@@ -171,9 +171,49 @@ MoE 架构在提供新水印载体的同时，也引入了独特的攻击向量�
 
 \subsection{控制平面攻击：路由干扰 (Router Disruption)}
 
+深入研究"路由干扰"（Router Disruption）这一控制平面攻击，可以发现这是一种专门针对 MoE 架构中门控网络（Gating Network）或路由器的攻击向量~\cite{ref1}。这种攻击利用了 MoE 架构的独特结构，对基于行为的水印构成了严重威胁。
+
+\subsubsection{攻击机制与漏洞}
+
+"路由干扰"攻击的核心机制是利用了路由器（Router）相对于庞大的专家（Experts）网络而言，通常具有"轻量级" (lightweight) 的特性~\cite{ref1}。攻击者可以利用这一特性，通过以下方式发起攻击：
+
+\begin{enumerate}
+\item \textbf{重新训练 (Retraining):} 攻击者可以对路由器的门控网络进行微调或完整的重新训练。由于路由器参数量相对较少，这种攻击的成本远低于重训练整个模型~\cite{ref1}。
+\item \textbf{注入噪声 (Noising):} 攻击者可以在路由决策过程中注入噪声，干扰其正常的令牌分配逻辑~\cite{ref1}。
+\item \textbf{改变路由权重 (Altering Routing Weights):} 相关的对抗性攻击研究也证实，存在专门针对路由器的攻击，其目的就是"改变路由权重"，同时不影响专家的输出~\cite{ref1}。
+\end{enumerate}
+
+\subsubsection{对水印的影响}
+
+这种攻击的直接目标是基于"行为"（Behavior-Based）或"路由聚焦"（Router-Focused）的隐式水印~\cite{ref1}。
+
 \begin{itemize}
-\item \textbf{机制:} 攻击者可以利用路由器（Gating Network）通常轻量级的特性，对其进行重新训练、微调或注入噪声~\cite{ref1}。
-\item \textbf{影响:} 这种攻击\textit{直接}针对基于行为的水印，旨在"消除控制平面信号"~\cite{ref1}。任何依赖于特定路由逻辑（如 BadSwitch 改编版）的水印都可能因此失效。
+\item \textbf{消除控制平面信号 (Erases Control-Plane Signals):} 路由干扰攻击的最终影响是"消除控制平面信号"~\cite{ref1}。
+\item \textbf{破坏水印载体:} 如果水印依赖于特定的路由序列（例如，由秘密密钥触发的特定专家路径）或依赖于"专家使用上的统计偏差"来编码信号，那么对路由器的重训练或干扰会彻底破坏这个载体，导致水印失效~\cite{ref1}。
+\end{itemize}
+
+\subsubsection{缓解策略与防御机制}
+
+针对路由干扰攻击，研究中提出了几种防御策略，其复杂度和鲁棒性各不相同：
+
+\textbf{A. 策略一：加密哈希与冗余 (Cryptographic Hashing \& Redundancy)}
+
+这是文献中提到的主要缓解策略，旨在加固路由逻辑，使其难以被轻易修改：
+
+\begin{itemize}
+\item \textbf{策略:} "在路由中使用加密哈希" (Use cryptographic hashing in routing)~\cite{ref1}。
+\item \textbf{潜在机制:} 尽管具体的实现机制未被详细阐述~\cite{ref1}，但相关概念（如"显式水印"）提到可以"将一个密钥哈希嵌入到路由决策中" (embedding a keyed hash into routing decisions)~\cite{ref1}。这表明，路由决策可能不仅仅依赖于可训练的权重，还可能依赖于一个基于秘密密钥和输入令牌计算出的、不可更改的哈希值，从而抵抗微调。
+\item \textbf{有效性:} 这种方法并非绝对可靠，但其有效性依赖于冗余设计。相关研究证据表明，在门控网络中结合使用这种策略和"冗余" (redundancy) 设计（例如，可能将信号分散到多个路由层或决策点），可以实现"50-70\% 的信号恢复" (50-70\% signal recovery)~\cite{ref1}。
+\end{itemize}
+
+\textbf{B. 策略二：鲁棒性感知路由 (Robustness-Aware Routing)}
+
+这是一种更先进的主动防御机制，它使路由器本身具备对抗攻击的能力：
+
+\begin{itemize}
+\item \textbf{策略:} 构建一个"鲁棒性感知路由器" (robustness-aware router)，例如在 RGMoE（Robust Graph MoE）框架中提出的那样~\cite{ref1}。
+\item \textbf{机制:} 这种路由器经过专门训练，能够"识别受干扰的模式" (identify the perturbed patterns)~\cite{ref1}。
+\item \textbf{防御行为:} 当路由器识别出输入可能受到了对抗性攻击（例如，旨在干扰其决策的噪声或扰动）时，它会"自适应地将每个受干扰的样本路由到相应的鲁棒专家" (adaptively routes each perturbed sample to the corresponding expert that exhibits robustness against that perturbation)~\cite{ref1}。简而言之，路由器学会了在检测到攻击时"激活仅有鲁棒的专家" (activate only the robust experts)，从而绕过攻击的影响~\cite{ref1}。
 \end{itemize}
 
 \subsection{数据平面攻击：专家级别攻击 (Expert-Level Attacks)}
